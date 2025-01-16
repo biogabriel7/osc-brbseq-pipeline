@@ -1,5 +1,6 @@
 import csv
 import yaml
+import os
 from snakemake.utils import min_version
 min_version("6.0")
 
@@ -16,9 +17,10 @@ def get_samples_from_metasheet():
                 sample_name = row["sample"]
                 samples[sample_name] = {
                     "R1": row["R1"],
-                    "R2": row["R2"]
+                    "R2": row["R2"],
+                    "srr": os.path.basename(row["R1"]).replace("_R1.fastq.gz", "")  # Get SRR ID from filename
                 }
-                print(f"Sample: {sample_name}, R1: {samples[sample_name]['R1']}, R2: {samples[sample_name]['R2']}")
+                print(f"Sample: {sample_name}, SRR: {samples[sample_name]['srr']}")
     except FileNotFoundError:
         print(f"Error: Metasheet not found at {config['metasheet_path']}")
         raise
@@ -31,16 +33,16 @@ def get_samples_from_metasheet():
 SAMPLES = get_samples_from_metasheet()
 
 # Create the directory structure
-for dir in ["logs/fastqc", "Analysis/QC/FastQC", "Analysis/QC/MultiQC"]:
+for dir in ["logs/fastqc", "Analysis/QC/FastQC"]:
     os.makedirs(dir, exist_ok=True)
 
-# Rule to generate all QC reports including MultiQC
+# Rule to generate all FastQC reports
 rule all:
     input:
-        expand("Analysis/QC/FastQC/{sample}/{sample}_{read}_fastqc.html",
-               sample=SAMPLES.keys(), read=["R1", "R2"]),
-        "Analysis/QC/MultiQC/multiqc_report.html",
-        "Analysis/QC/MultiQC/multiqc_report.pdf"
+        expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
+               sample=SAMPLES.keys(), 
+               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
+               read=["R1", "R2"])
 
 # Rule to run FastQC on both R1 and R2 for each sample
 rule fastqc:
@@ -48,12 +50,12 @@ rule fastqc:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"]
     output:
-        html_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.html",
-        zip_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.zip",
-        html_r2="Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.html",
-        zip_r2="Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.zip"
+        html_r1="Analysis/QC/FastQC/{sample}/{srr}_R1_fastqc.html",
+        zip_r1="Analysis/QC/FastQC/{sample}/{srr}_R1_fastqc.zip",
+        html_r2="Analysis/QC/FastQC/{sample}/{srr}_R2_fastqc.html",
+        zip_r2="Analysis/QC/FastQC/{sample}/{srr}_R2_fastqc.zip"
     log:
-        "logs/fastqc/{sample}.log"
+        "logs/fastqc/{sample}_{srr}.log"
     params:
         outdir="Analysis/QC/FastQC/{sample}"
     threads: config["fastqc_threads"] if "fastqc_threads" in config else 2
@@ -62,41 +64,19 @@ rule fastqc:
         time=config["fastqc_time"] if "fastqc_time" in config else "01:00:00"
     shell:
         """
+        set -o pipefail
         mkdir -p {params.outdir}
-        module load fastqc
         
         fastqc --threads {threads} \
             --outdir {params.outdir} \
             {input.r1} {input.r2} \
-            2> {log}
-        """
-
-# Rule to run MultiQC to aggregate all FastQC reports
-rule multiqc:
-    input:
-        expand("Analysis/QC/FastQC/{sample}/{sample}_{read}_fastqc.zip",
-               sample=SAMPLES.keys(), read=["R1", "R2"])
-    output:
-        html="Analysis/QC/MultiQC/multiqc_report.html",
-        pdf="Analysis/QC/MultiQC/multiqc_report.pdf"
-    log:
-        "logs/fastqc/multiqc.log"
-    params:
-        outdir="Analysis/QC/MultiQC"
-    resources:
-        mem_mb=config["multiqc_memory"] if "multiqc_memory" in config else 4000,
-        time=config["multiqc_time"] if "multiqc_time" in config else "00:30:00"
-    shell:
-        """
-        module load python/3.8-conda
-        source activate multiqc_env
-        
-        multiqc --force \
-            --outdir {params.outdir} \
-            Analysis/QC/FastQC/ \
-            2> {log}
+            > {log} 2>&1
             
-        # Convert HTML to PDF using wkhtmltopdf
-        module load wkhtmltopdf
-        wkhtmltopdf {output.html} {output.pdf}
+        # Ensure the output files exist
+        for f in {output}; do
+            if [ ! -f "$f" ]; then
+                echo "Expected output file $f was not created" >> {log}
+                exit 1
+            fi
+        done
         """

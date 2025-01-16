@@ -145,3 +145,4 @@ After successful download:
 ## Next Tasks
 
  - [ ] Add md5 validator for each sample to `download_report.txt`
+ - [ ] Add the .yml file for environment

@@ -1,1 +1,4 @@
 /resources
+/.snakemake
+/logs
+/Analysis
