@@ -8,7 +8,7 @@
 #SBATCH --output=prefetch_%j.log
 
 # Base directory
-BASE_DIR="/fs/ess/PAS2598/protocol_comparison/motoneurons"
+BASE_DIR=""
 
 # Load conda
 module load miniconda3
@@ -25,9 +25,9 @@ echo "sample,R1,R2" > ${BASE_DIR}/resources/config/metasheet.csv
 
 # Define samples by lab
 declare -A lab_samples=(
-    ["Souza"]="SRR22522185 SRR22522186"
-    ["Scaber"]="SRR28516486 SRR28516488 SRR28516489"
-    ["Okano"]="SRR29476310 SRR29476289 SRR29476277"
+    ["A"]="SRR1 SRR2"
+    ["B"]="SRR1 SRR2 SRR3"
+    ["C"]="SRR1 SRR2 SRR3"
 )
 
 for lab in "${!lab_samples[@]}"; do
