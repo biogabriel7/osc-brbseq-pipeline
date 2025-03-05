@@ -119,7 +119,7 @@ rule fastp_with_dependency:
         mkdir -p $(dirname {output.html})
         
         # Debug information
-        echo "Processing sample: {wildcards.sample}, SRR: {wildcards.srr}" >> {log}
+        echo "Processing sample: {wildcards.sample}" >> {log}
         echo "Input R1: {input.r1}" >> {log}
         echo "Input R2: {input.r2}" >> {log}
         echo "Output R1: {output.r1}" >> {log}
@@ -220,12 +220,10 @@ rule qc_stage:
 # Run just the trimming stage
 rule trimming_stage:
     input:
-        expand("Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
-        expand("Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
+        expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
+        expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
         "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
     shell:
         """
@@ -238,8 +236,8 @@ onsuccess:
     print("================================")
     print("Quality control reports: Analysis/QC/MultiQC/multiqc_report.html")
     print("Trimming parameters: Analysis/QC/Trimming/trimming_params.json")
-    print("Trimmed reads: Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz")
-    print("Trimming reports: Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.html")
+    print("Trimmed reads: Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz")
+    print("Trimming reports: Analysis/QC/Trimming/Reports/{sample}_fastp.html")
     print("Trimming MultiQC: Analysis/QC/Trimming/MultiQC/multiqc_report.html")
     print("\nTo visualize the workflow graph:")
     print("  snakemake --dag | dot -Tsvg > workflow.svg")
