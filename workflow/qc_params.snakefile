@@ -56,7 +56,6 @@ rule fastqc:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"]
     output:
-        # Use the actual SRR ID from the sample, not the wildcard
         html_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.html",
         zip_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.zip",
         html_r2="Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.html",

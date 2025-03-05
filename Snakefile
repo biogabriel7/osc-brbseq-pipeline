@@ -72,9 +72,8 @@ rule all:
 # It acts as a checkpoint between workflow stages
 rule qc_complete:
     input:
-        fastqc=expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
+        fastqc=expand("Analysis/QC/FastQC/{sample}/{sample}_{read}_fastqc.html",
                sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
                read=["R1", "R2"]),
         multiqc="Analysis/QC/MultiQC/multiqc_report.html",
         params="Analysis/QC/Trimming/trimming_params.json"
@@ -98,7 +97,7 @@ rule fastp_with_dependency:
     input:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"],
-        qc_complete="Analysis/QC/.qc_complete"  # Added dependency on QC completion
+        qc_complete="Analysis/QC/.qc_complete"
     output:
         r1="Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
         r2="Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
