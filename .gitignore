@@ -1,4 +1,7 @@
-/resources
+/resources/genome
+/resources/primers
+/resources/adaptors
 /.snakemake
 /logs
 /Analysis
+/workflow/old_approach

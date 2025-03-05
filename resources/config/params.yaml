@@ -1,0 +1,28 @@
+# File paths
+metasheet_path: "/fs/ess/PAS2598/protocol_comparison/motoneurons/resources/config/metasheet.csv"
+params_path: "/users/PAS2598/duarte63/GitHub/satienzar-brnaseq/resources/config/params.yaml"
+base_dir: "/path/to/base_dir"  # Can be overridden at runtime
+
+# General parameters
+threads: 28  # Number of CPU threads to use
+
+# FastQC specific parameters
+fastqc_threads: 2
+fastqc_memory: 4000
+fastqc_time: "01:00:00"
+multiqc_memory: 4000
+multiqc_time: "00:30:00"
+
+# Trimming parameters
+adapters: "resources/adaptors/TruSeq3-PE.fa/TruSeq3-PE.fa"
+clip_settings: "2:30:10:2:True"
+leading_quality: 3
+trailing_quality: 3
+sliding_window: "4:15"
+min_length: 36
+
+# HISAT2 alignment parameters
+hisat2_index: "resources/genome/hisat2_index/genome_index_hisat2"
+extra_hisat2_params: "--dta --rna-strandness RF"  # Additional HISAT2 options
+output_format: "bam"  # Format for alignment output
+star_index: "/users/PAS2598/duarte63/star_index"

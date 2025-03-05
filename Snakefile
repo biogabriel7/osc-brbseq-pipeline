@@ -1,14 +1,24 @@
-import json
-import yaml
+from snakemake.utils import min_version
 import os
 import csv
-from snakemake.utils import min_version
+
+# Ensure minimum Snakemake version for compatibility
 min_version("6.0")
 
-# Load configuration
+# Create essential directories if they don't exist
+for dir_path in [
+    "logs/fastqc", "logs/multiqc", "logs/trimming", 
+    "Analysis/QC/FastQC", "Analysis/QC/MultiQC", "Analysis/QC/Trimming",
+    "Analysis/QC/Trimming/Reports", "Analysis/QC/Trimming/MultiQC", 
+    "Analysis/Trimmed"
+]:
+    os.makedirs(dir_path, exist_ok=True)
+
+# Load configuration file (using relative path for portability)
 configfile: "resources/config/params.yaml"
 
 # Function to parse metasheet and extract sample information
+# This centralizes sample handling for all workflow components
 def get_samples_from_metasheet():
     samples = {}
     try:
@@ -30,68 +40,29 @@ def get_samples_from_metasheet():
         raise
     return samples
 
-# Store samples from metasheet in a dictionary
+# Get samples information
 SAMPLES = get_samples_from_metasheet()
 
-# Create the directory structure
-for dir in ["logs/trimming", "Analysis/Trimmed", "Analysis/QC/Trimming/Reports"]:
-    os.makedirs(dir, exist_ok=True)
+# Include rules from other Snakefiles
+# This brings in all the rules defined in the other files
+include: "workflow/qc_params.snakefile"     # QC and parameter generation rules
+include: "workflow/fastp_trimming.snakefile"  # Trimming rules
 
-# Load the trimming parameters from the JSON file
-def load_trimming_params():
-    params_file = "Analysis/QC/Trimming/trimming_params.json"
-    if not os.path.exists(params_file):
-        print(f"WARNING: No trimming parameters file found at {params_file}.")
-        print("Will use default parameters for all samples.")
-        return {}
-    
-    try:
-        with open(params_file, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"ERROR: Could not parse trimming parameters: {str(e)}")
-        return {}
+# Override rule all from included files
+# This is the main entry point for the entire workflow
+ruleorder: all > trim_all > qc_all
 
-# Store trimming parameters
-TRIMMING_PARAMS = load_trimming_params()
-
-# Helper function to get trimming parameters for a specific sample
-def get_sample_params(sample_name, srr_id):
-    """Get trimming parameters for a sample, trying multiple possible keys."""
-    # Try different variations of sample identifier
-    possible_keys = [
-        sample_name,              # Try the sample name as-is
-        srr_id,                   # Try just the SRR ID
-        f"{sample_name}_{srr_id}",  # Try combined format
-        srr_id.split("_")[0] if "_" in srr_id else srr_id,  # Try first part of SRR
-    ]
-    
-    # Try all possible keys
-    for key in possible_keys:
-        if key in TRIMMING_PARAMS:
-            print(f"Found parameters for key: {key}")
-            return TRIMMING_PARAMS[key]
-    
-    # If no exact match, try substring matching
-    for key in TRIMMING_PARAMS:
-        for id_key in possible_keys:
-            if id_key in key:
-                print(f"Found parameters via substring match: {id_key} in {key}")
-                return TRIMMING_PARAMS[key]
-    
-    # No match found, use default parameters
-    print(f"No parameters found for {sample_name}/{srr_id}. Using defaults.")
-    return {
-        "leading_quality": config.get("leading_quality", 3),
-        "trailing_quality": config.get("trailing_quality", 3),
-        "sliding_window": config.get("sliding_window", "4:15"),
-        "min_length": config.get("min_length", 36),
-        "customized": False
-    }
-
-# Rule to run trimming for all samples
-rule trim_all:
+# Define the complete workflow with all expected outputs
+rule all:
     input:
+        # QC stage outputs
+        expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
+               sample=SAMPLES.keys(), 
+               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
+               read=["R1", "R2"]),
+        "Analysis/QC/MultiQC/multiqc_report.html",
+        "Analysis/QC/Trimming/trimming_params.json",
+        # Trimming stage outputs
         expand("Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
                sample=SAMPLES.keys(), 
                srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
@@ -100,11 +71,37 @@ rule trim_all:
                srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
         "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
 
-# Rule to run fastp with sample-specific parameters
-rule fastp:
+# This rule ensures QC is completed before trimming starts
+# It acts as a checkpoint between workflow stages
+rule qc_complete:
+    input:
+        fastqc=expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
+               sample=SAMPLES.keys(), 
+               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
+               read=["R1", "R2"]),
+        multiqc="Analysis/QC/MultiQC/multiqc_report.html",
+        params="Analysis/QC/Trimming/trimming_params.json"
+    output:
+        touch("Analysis/QC/.qc_complete")
+    log:
+        "logs/workflow/qc_complete.log"
+    shell:
+        """
+        echo "QC and parameter generation completed successfully at $(date)" | tee {log}
+        echo "FastQC reports generated: $(find Analysis/QC/FastQC -name '*_fastqc.html' | wc -l)" | tee -a {log}
+        echo "MultiQC report: {input.multiqc}" | tee -a {log}
+        echo "Trimming parameters: {input.params}" | tee -a {log}
+        """
+
+# Modify the original fastp rule to require QC completion
+# This ensures proper stage dependencies
+ruleorder: fastp_with_dependency > fastp
+
+rule fastp_with_dependency:
     input:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
-        r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"]
+        r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"],
+        qc_complete="Analysis/QC/.qc_complete"  # Added dependency on QC completion
     output:
         r1="Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
         r2="Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
@@ -113,6 +110,8 @@ rule fastp:
     log:
         "logs/trimming/{sample}_{srr}.log"
     params:
+        # Use the function from the included fastp_trimming.snakefile
+        # We're preserving the parameter generation logic
         sample_params=lambda wildcards: get_sample_params(wildcards.sample, wildcards.srr)
     threads: config.get("trimming_threads", 4)
     resources:
@@ -211,45 +210,48 @@ rule fastp:
         ls -lh {output.r1} {output.r2} >> {log}
         """
 
-# Rule to run MultiQC on fastp reports
-rule multiqc_fastp:
+# Rules for running specific workflow stages independently
+# These allow users to run just a portion of the workflow
+
+# Run just the QC stage
+rule qc_stage:
     input:
-        fastp_reports=expand("Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.json",
-                           sample=SAMPLES.keys(), 
-                           srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()])
-    output:
-        html="Analysis/QC/Trimming/MultiQC/multiqc_report.html",
-        data_dir=directory("Analysis/QC/Trimming/MultiQC/multiqc_data")
-    log:
-        "logs/trimming/multiqc_fastp.log"
+        "Analysis/QC/.qc_complete"
     shell:
         """
-        # Create output directory
-        mkdir -p $(dirname {output.html})
-        
-        # Run MultiQC on fastp reports
-        echo "Running MultiQC on fastp reports..." >> {log}
-        
-        # List input files for debugging
-        echo "Input files:" >> {log}
-        for f in {input.fastp_reports}; do
-            echo "  $f" >> {log}
-            # Check file size
-            ls -lh $f >> {log}
-        done
-        
-        multiqc \
-            --force \
-            --outdir $(dirname {output.html}) \
-            --filename $(basename {output.html}) \
-            Analysis/QC/Trimming/Reports/ \
-            > {log} 2>&1
-            
-        # Verify output
-        if [ ! -f "{output.html}" ]; then
-            echo "ERROR: MultiQC report was not created" >> {log}
-            exit 1
-        fi
-        
-        echo "MultiQC completed successfully" >> {log}
+        echo "QC stage completed successfully"
         """
+
+# Run just the trimming stage
+rule trimming_stage:
+    input:
+        expand("Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
+               sample=SAMPLES.keys(), 
+               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
+        expand("Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
+               sample=SAMPLES.keys(), 
+               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
+        "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
+    shell:
+        """
+        echo "Trimming stage completed successfully"
+        """
+
+# Provide helpful messages on workflow completion or failure
+onsuccess:
+    print("\nWorkflow completed successfully!")
+    print("================================")
+    print("Quality control reports: Analysis/QC/MultiQC/multiqc_report.html")
+    print("Trimming parameters: Analysis/QC/Trimming/trimming_params.json")
+    print("Trimmed reads: Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz")
+    print("Trimming reports: Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.html")
+    print("Trimming MultiQC: Analysis/QC/Trimming/MultiQC/multiqc_report.html")
+    print("\nTo visualize the workflow graph:")
+    print("  snakemake --dag | dot -Tsvg > workflow.svg")
+
+onerror:
+    print("\nWorkflow failed!")
+    print("===============")
+    print("Check log files in the logs/ directory for error details.")
+    print("Run with --notemp flag to keep temporary files for debugging.")
+    print("Use -n (dry run) and -p (print shell commands) for troubleshooting.")
