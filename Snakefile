@@ -48,27 +48,24 @@ SAMPLES = get_samples_from_metasheet()
 include: "workflow/qc_params.snakefile"     # QC and parameter generation rules
 include: "workflow/fastp_trimming.snakefile"  # Trimming rules
 
-# Override rule all from included files
-# This is the main entry point for the entire workflow
-ruleorder: all > trim_all > qc_all
+# Define the workflow order
+ruleorder: fastqc > multiqc > generate_trimming_params > fastp_with_dependency > multiqc_fastp
 
 # Define the complete workflow with all expected outputs
 rule all:
     input:
         # QC stage outputs
-        expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
-               read=["R1", "R2"]),
+        expand("Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.html",
+               sample=SAMPLES.keys()),
+        expand("Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.html",
+               sample=SAMPLES.keys()),
         "Analysis/QC/MultiQC/multiqc_report.html",
         "Analysis/QC/Trimming/trimming_params.json",
         # Trimming stage outputs
-        expand("Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
-        expand("Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
+        expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
+        expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
         "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
 
 # This rule ensures QC is completed before trimming starts
@@ -103,16 +100,15 @@ rule fastp_with_dependency:
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"],
         qc_complete="Analysis/QC/.qc_complete"  # Added dependency on QC completion
     output:
-        r1="Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
-        r2="Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
-        html="Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.html",
-        json="Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.json"
+        r1="Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+        r2="Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+        html="Analysis/QC/Trimming/Reports/{sample}_fastp.html",
+        json="Analysis/QC/Trimming/Reports/{sample}_fastp.json"
     log:
-        "logs/trimming/{sample}_{srr}.log"
+        "logs/trimming/{sample}.log"
     params:
-        # Use the function from the included fastp_trimming.snakefile
-        # We're preserving the parameter generation logic
-        sample_params=lambda wildcards: get_sample_params(wildcards.sample, wildcards.srr)
+        # Use only the sample name
+        sample_params=lambda wildcards: get_sample_params(wildcards.sample)
     threads: config.get("trimming_threads", 4)
     resources:
         mem_mb=config.get("trimming_memory", 8000),

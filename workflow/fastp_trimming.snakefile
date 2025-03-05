@@ -2,11 +2,16 @@ import json
 import yaml
 import os
 import csv
+import re
 from snakemake.utils import min_version
 min_version("6.0")
 
 # Load configuration
 configfile: "resources/config/params.yaml"
+
+# Create the directory structure
+for dir in ["logs/trimming", "Analysis/Trimmed", "Analysis/QC/Trimming/Reports", "Analysis/QC/Trimming/MultiQC"]:
+    os.makedirs(dir, exist_ok=True)
 
 # Function to parse metasheet and extract sample information
 def get_samples_from_metasheet():
@@ -56,31 +61,22 @@ def load_trimming_params():
 TRIMMING_PARAMS = load_trimming_params()
 
 # Helper function to get trimming parameters for a specific sample
-def get_sample_params(sample_name, srr_id):
-    """Get trimming parameters for a sample, trying multiple possible keys."""
-    # Try different variations of sample identifier
-    possible_keys = [
-        sample_name,              # Try the sample name as-is
-        srr_id,                   # Try just the SRR ID
-        f"{sample_name}_{srr_id}",  # Try combined format
-        srr_id.split("_")[0] if "_" in srr_id else srr_id,  # Try first part of SRR
-    ]
+def get_sample_params(sample_name):
+    """Get trimming parameters for a sample."""
+    # Try to find parameters for this sample
+    if sample_name in TRIMMING_PARAMS:
+        print(f"Found parameters for sample: {sample_name}")
+        return TRIMMING_PARAMS[sample_name]
     
-    # Try all possible keys
-    for key in possible_keys:
-        if key in TRIMMING_PARAMS:
-            print(f"Found parameters for key: {key}")
-            return TRIMMING_PARAMS[key]
-    
-    # If no exact match, try substring matching
-    for key in TRIMMING_PARAMS:
-        for id_key in possible_keys:
-            if id_key in key:
-                print(f"Found parameters via substring match: {id_key} in {key}")
-                return TRIMMING_PARAMS[key]
+    # Try to extract SRR ID from the sample name and use that
+    srr_match = re.search(r'(SRR\d+)', sample_name)
+    if srr_match and srr_match.group(1) in TRIMMING_PARAMS:
+        srr_id = srr_match.group(1)
+        print(f"Found parameters via SRR ID: {srr_id}")
+        return TRIMMING_PARAMS[srr_id]
     
     # No match found, use default parameters
-    print(f"No parameters found for {sample_name}/{srr_id}. Using defaults.")
+    print(f"No parameters found for {sample_name}. Using defaults.")
     return {
         "leading_quality": config.get("leading_quality", 3),
         "trailing_quality": config.get("trailing_quality", 3),
@@ -92,12 +88,10 @@ def get_sample_params(sample_name, srr_id):
 # Rule to run trimming for all samples
 rule trim_all:
     input:
-        expand("Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
-        expand("Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
-               sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()]),
+        expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
+        expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+               sample=SAMPLES.keys()),
         "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
 
 # Rule to run fastp with sample-specific parameters
@@ -106,14 +100,15 @@ rule fastp:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"]
     output:
-        r1="Analysis/Trimmed/{sample}/{srr}_R1_trimmed.fastq.gz",
-        r2="Analysis/Trimmed/{sample}/{srr}_R2_trimmed.fastq.gz",
-        html="Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.html",
-        json="Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.json"
+        r1="Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+        r2="Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+        html="Analysis/QC/Trimming/Reports/{sample}_fastp.html",
+        json="Analysis/QC/Trimming/Reports/{sample}_fastp.json"
     log:
-        "logs/trimming/{sample}_{srr}.log"
+        "logs/trimming/{sample}.log"
     params:
-        sample_params=lambda wildcards: get_sample_params(wildcards.sample, wildcards.srr)
+        # Update to use only the sample name
+        sample_params=lambda wildcards: get_sample_params(wildcards.sample)
     threads: config.get("trimming_threads", 4)
     resources:
         mem_mb=config.get("trimming_memory", 8000),
@@ -125,7 +120,7 @@ rule fastp:
         mkdir -p $(dirname {output.html})
         
         # Debug information
-        echo "Processing sample: {wildcards.sample}, SRR: {wildcards.srr}" >> {log}
+        echo "Processing sample: {wildcards.sample}" >> {log}
         echo "Input R1: {input.r1}" >> {log}
         echo "Input R2: {input.r2}" >> {log}
         echo "Output R1: {output.r1}" >> {log}
@@ -214,9 +209,8 @@ rule fastp:
 # Rule to run MultiQC on fastp reports
 rule multiqc_fastp:
     input:
-        fastp_reports=expand("Analysis/QC/Trimming/Reports/{sample}_{srr}_fastp.json",
-                           sample=SAMPLES.keys(), 
-                           srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()])
+        fastp_reports=expand("Analysis/QC/Trimming/Reports/{sample}_fastp.json",
+                           sample=SAMPLES.keys())
     output:
         html="Analysis/QC/Trimming/MultiQC/multiqc_report.html",
         data_dir=directory("Analysis/QC/Trimming/MultiQC/multiqc_data")

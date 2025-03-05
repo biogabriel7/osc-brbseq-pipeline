@@ -56,12 +56,13 @@ rule fastqc:
         r1=lambda wildcards: SAMPLES[wildcards.sample]["R1"],
         r2=lambda wildcards: SAMPLES[wildcards.sample]["R2"]
     output:
-        html_r1="Analysis/QC/FastQC/{sample}/{srr}_R1_fastqc.html",
-        zip_r1="Analysis/QC/FastQC/{sample}/{srr}_R1_fastqc.zip",
-        html_r2="Analysis/QC/FastQC/{sample}/{srr}_R2_fastqc.html",
-        zip_r2="Analysis/QC/FastQC/{sample}/{srr}_R2_fastqc.zip"
+        # Use the actual SRR ID from the sample, not the wildcard
+        html_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.html",
+        zip_r1="Analysis/QC/FastQC/{sample}/{sample}_R1_fastqc.zip",
+        html_r2="Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.html",
+        zip_r2="Analysis/QC/FastQC/{sample}/{sample}_R2_fastqc.zip"
     log:
-        "logs/fastqc/{sample}_{srr}.log"
+        "logs/fastqc/{sample}.log"
     params:
         outdir="Analysis/QC/FastQC/{sample}"
     threads: config.get("fastqc_threads", 2)
@@ -78,6 +79,21 @@ rule fastqc:
             {input.r1} {input.r2} \
             > {log} 2>&1
             
+        # Rename the files to match expected output filenames
+        BASE_R1=$(basename {input.r1} .fastq.gz)
+        BASE_R2=$(basename {input.r2} .fastq.gz)
+        
+        # Move and rename files if needed
+        if [ -f "{params.outdir}/${{BASE_R1}}_fastqc.html" ] && [ "{params.outdir}/${{BASE_R1}}_fastqc.html" != "{output.html_r1}" ]; then
+            mv "{params.outdir}/${{BASE_R1}}_fastqc.html" "{output.html_r1}"
+            mv "{params.outdir}/${{BASE_R1}}_fastqc.zip" "{output.zip_r1}"
+        fi
+        
+        if [ -f "{params.outdir}/${{BASE_R2}}_fastqc.html" ] && [ "{params.outdir}/${{BASE_R2}}_fastqc.html" != "{output.html_r2}" ]; then
+            mv "{params.outdir}/${{BASE_R2}}_fastqc.html" "{output.html_r2}"
+            mv "{params.outdir}/${{BASE_R2}}_fastqc.zip" "{output.zip_r2}"
+        fi
+        
         # Ensure the output files exist and have correct permissions
         for f in {output}; do
             if [ ! -f "$f" ]; then
@@ -91,10 +107,8 @@ rule fastqc:
 # Rule to run MultiQC
 rule multiqc:
     input:
-        # Use the directory containing all FastQC outputs
-        fastqc_outputs=expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.zip",
+        fastqc_outputs=expand("Analysis/QC/FastQC/{sample}/{sample}_{read}_fastqc.zip",
                              sample=SAMPLES.keys(),
-                             srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
                              read=["R1", "R2"])
     output:
         html="Analysis/QC/MultiQC/multiqc_report.html",
@@ -130,7 +144,7 @@ rule multiqc:
 # Rule to generate trimming parameters
 rule generate_trimming_params:
     input:
-        multiqc_fastqc="Analysis/QC/MultiQC/multiqc_data/multiqc_fastqc.txt",
+        multiqc_html="Analysis/QC/MultiQC/multiqc_report.html",
         config=config.get("params_path", "resources/config/params.yaml")
     output:
         params="Analysis/QC/Trimming/trimming_params.json"
@@ -138,8 +152,12 @@ rule generate_trimming_params:
         "logs/trimming/generate_params.log"
     shell:
         """
+        # Define the path to the MultiQC FastQC metrics file
+        MULTIQC_FASTQC_FILE="Analysis/QC/MultiQC/multiqc_data/multiqc_fastqc.txt"
+        
         # Add debugging information
-        echo "Input multiqc file: {input.multiqc_fastqc}" >> {log}
+        echo "Input multiqc report: {input.multiqc_html}" >> {log}
+        echo "MultiQC metrics file: $MULTIQC_FASTQC_FILE" >> {log}
         echo "Input config file: {input.config}" >> {log}
         
         # Make sure the script exists
@@ -149,20 +167,23 @@ rule generate_trimming_params:
         fi
         
         # Check if the multiqc file exists and has content
-        if [ ! -f "{input.multiqc_fastqc}" ]; then
+        if [ ! -f "$MULTIQC_FASTQC_FILE" ]; then
             echo "ERROR: MultiQC FastQC metrics file not found" >> {log}
+            echo "Contents of multiqc_data directory:" >> {log}
+            ls -la Analysis/QC/MultiQC/multiqc_data/ >> {log}
             exit 1
         fi
         
         # Display the first few lines of the multiqc file for debugging
         echo "First 10 lines of multiqc file:" >> {log}
-        head -n 10 {input.multiqc_fastqc} >> {log}
+        head -n 10 "$MULTIQC_FASTQC_FILE" >> {log}
         
         # Run the parameters generation script with verbose output
         python workflow/scripts/trimming_params.py \
-            --input {input.multiqc_fastqc} \
+            --input "$MULTIQC_FASTQC_FILE" \
             --output {output.params} \
             --config {input.config} \
+            --debug \
             >> {log} 2>&1
             
         # Verify JSON output
