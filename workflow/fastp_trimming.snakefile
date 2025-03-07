@@ -108,11 +108,11 @@ rule fastp:
         "logs/trimming/{sample}.log"
     params:
         # Update to use only the sample name
-        sample_params=lambda wildcards: get_sample_params(wildcards.sample)
+        sample_params=lambda wildcards: get_sample_params(wildcards.sample),
+        time=config.get("trimming_time", "02:00:00")
     threads: config.get("trimming_threads", 4)
     resources:
-        mem_mb=config.get("trimming_memory", 8000),
-        time=config.get("trimming_time", "02:00:00")
+        mem_mb=config.get("trimming_memory", 8000)
     shell:
         """
         # Create output directories
@@ -130,13 +130,14 @@ rule fastp:
         PARAMS='{params.sample_params}'
         echo "Parameters: $PARAMS" >> {log}
         
-        # Extract quality settings
-        LEADING_QUALITY=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('leading_quality', 3))")
-        TRAILING_QUALITY=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('trailing_quality', 3))")
-        MIN_LENGTH=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('min_length', 36))")
+        # Extract quality settings using a temporary JSON file to avoid shell quoting issues
+        echo $PARAMS > params_temp.json
+        LEADING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('leading_quality', 3))")
+        TRAILING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('trailing_quality', 3))")
+        MIN_LENGTH=$(python -c "import json; print(json.load(open('params_temp.json')).get('min_length', 36))")
         
         # Parse sliding window into components
-        SLIDING_WINDOW=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('sliding_window', '4:15'))")
+        SLIDING_WINDOW=$(python -c "import json; print(json.load(open('params_temp.json')).get('sliding_window', '4:15'))")
         WINDOW_SIZE=$(echo $SLIDING_WINDOW | cut -d: -f1)
         WINDOW_QUALITY=$(echo $SLIDING_WINDOW | cut -d: -f2)
         
@@ -151,23 +152,26 @@ rule fastp:
         CUSTOM_OPTS=""
         
         # Check for specific flags
-        DEDUP=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('deduplication', False) else 'false')")
+        DEDUP=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('deduplication', False) else 'false')")
         if [ "$DEDUP" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --dedup"
             echo "  Using deduplication" >> {log}
         fi
         
-        TRIM_POLY_G=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('trim_poly_g', False) else 'false')")
+        TRIM_POLY_G=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('trim_poly_g', False) else 'false')")
         if [ "$TRIM_POLY_G" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --trim_poly_g"
             echo "  Using poly-G trimming" >> {log}
         fi
         
-        LOW_COMPLEXITY=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('low_complexity_filter', False) else 'false')")
+        LOW_COMPLEXITY=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('low_complexity_filter', False) else 'false')")
         if [ "$LOW_COMPLEXITY" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --low_complexity_filter"
             echo "  Using low complexity filter" >> {log}
         fi
+        
+        # Clean up temporary file
+        rm params_temp.json
         
         # Run fastp with auto-adapter detection and determined parameters
         echo "Running fastp..." >> {log}

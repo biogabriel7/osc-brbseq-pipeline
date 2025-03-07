@@ -61,6 +61,8 @@ rule all:
                sample=SAMPLES.keys()),
         "Analysis/QC/MultiQC/multiqc_report.html",
         "Analysis/QC/Trimming/trimming_params.json",
+        # QC completion marker
+        "Analysis/QC/.qc_complete",
         # Trimming stage outputs
         expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
                sample=SAMPLES.keys()),
@@ -83,10 +85,28 @@ rule qc_complete:
         "logs/workflow/qc_complete.log"
     shell:
         """
+        # Create logs directory if it doesn't exist
+        mkdir -p $(dirname {log})
+        
+        # Log QC completion
         echo "QC and parameter generation completed successfully at $(date)" | tee {log}
         echo "FastQC reports generated: $(find Analysis/QC/FastQC -name '*_fastqc.html' | wc -l)" | tee -a {log}
         echo "MultiQC report: {input.multiqc}" | tee -a {log}
         echo "Trimming parameters: {input.params}" | tee -a {log}
+        
+        # Verify that all required files exist
+        if [ ! -f "{input.multiqc}" ]; then
+            echo "ERROR: MultiQC report not found" | tee -a {log}
+            exit 1
+        fi
+        
+        if [ ! -f "{input.params}" ]; then
+            echo "ERROR: Trimming parameters file not found" | tee -a {log}
+            exit 1
+        fi
+        
+        # Create a marker file to indicate QC completion
+        echo "Creating QC completion marker file" | tee -a {log}
         """
 
 # Modify the original fastp rule to require QC completion
@@ -107,11 +127,11 @@ rule fastp_with_dependency:
         "logs/trimming/{sample}.log"
     params:
         # Use only the sample name
-        sample_params=lambda wildcards: get_sample_params(wildcards.sample)
+        sample_params=lambda wildcards: get_sample_params(wildcards.sample),
+        time=config.get("trimming_time", "02:00:00")
     threads: config.get("trimming_threads", 4)
     resources:
-        mem_mb=config.get("trimming_memory", 8000),
-        time=config.get("trimming_time", "02:00:00")
+        mem_mb=config.get("trimming_memory", 8000)
     shell:
         """
         # Create output directories
@@ -129,13 +149,14 @@ rule fastp_with_dependency:
         PARAMS='{params.sample_params}'
         echo "Parameters: $PARAMS" >> {log}
         
-        # Extract quality settings
-        LEADING_QUALITY=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('leading_quality', 3))")
-        TRAILING_QUALITY=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('trailing_quality', 3))")
-        MIN_LENGTH=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('min_length', 36))")
+        # Extract quality settings using a temporary JSON file to avoid shell quoting issues
+        echo $PARAMS > params_temp.json
+        LEADING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('leading_quality', 3))")
+        TRAILING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('trailing_quality', 3))")
+        MIN_LENGTH=$(python -c "import json; print(json.load(open('params_temp.json')).get('min_length', 36))")
         
         # Parse sliding window into components
-        SLIDING_WINDOW=$(echo '$PARAMS' | python -c "import sys, json; print(json.loads(sys.stdin.read()).get('sliding_window', '4:15'))")
+        SLIDING_WINDOW=$(python -c "import json; print(json.load(open('params_temp.json')).get('sliding_window', '4:15'))")
         WINDOW_SIZE=$(echo $SLIDING_WINDOW | cut -d: -f1)
         WINDOW_QUALITY=$(echo $SLIDING_WINDOW | cut -d: -f2)
         
@@ -150,23 +171,26 @@ rule fastp_with_dependency:
         CUSTOM_OPTS=""
         
         # Check for specific flags
-        DEDUP=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('deduplication', False) else 'false')")
+        DEDUP=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('deduplication', False) else 'false')")
         if [ "$DEDUP" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --dedup"
             echo "  Using deduplication" >> {log}
         fi
         
-        TRIM_POLY_G=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('trim_poly_g', False) else 'false')")
+        TRIM_POLY_G=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('trim_poly_g', False) else 'false')")
         if [ "$TRIM_POLY_G" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --trim_poly_g"
             echo "  Using poly-G trimming" >> {log}
         fi
         
-        LOW_COMPLEXITY=$(echo '$PARAMS' | python -c "import sys, json; print('true' if json.loads(sys.stdin.read()).get('low_complexity_filter', False) else 'false')")
+        LOW_COMPLEXITY=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('low_complexity_filter', False) else 'false')")
         if [ "$LOW_COMPLEXITY" = "true" ]; then
             CUSTOM_OPTS="$CUSTOM_OPTS --low_complexity_filter"
             echo "  Using low complexity filter" >> {log}
         fi
+        
+        # Clean up temporary file
+        rm params_temp.json
         
         # Run fastp with auto-adapter detection and determined parameters
         echo "Running fastp..." >> {log}
@@ -208,6 +232,15 @@ rule fastp_with_dependency:
 # Rules for running specific workflow stages independently
 # These allow users to run just a portion of the workflow
 
+# Run just the parameters generation step
+rule params_generation:
+    input:
+        "Analysis/QC/Trimming/trimming_params.json"
+    shell:
+        """
+        echo "Parameter generation completed successfully"
+        """
+
 # Run just the QC stage
 rule qc_stage:
     input:
@@ -228,6 +261,21 @@ rule trimming_stage:
     shell:
         """
         echo "Trimming stage completed successfully"
+        """
+
+# Define workflow stages for better control over execution order
+rule workflow_stages:
+    input:
+        qc="Analysis/QC/.qc_complete",
+        trimming=expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+                      sample=SAMPLES.keys())
+    output:
+        touch("Analysis/.workflow_complete")
+    shell:
+        """
+        echo "Workflow completed successfully at $(date)"
+        echo "QC stage: Completed"
+        echo "Trimming stage: Completed"
         """
 
 # Provide helpful messages on workflow completion or failure

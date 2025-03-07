@@ -63,11 +63,11 @@ rule fastqc:
     log:
         "logs/fastqc/{sample}.log"
     params:
-        outdir="Analysis/QC/FastQC/{sample}"
+        outdir="Analysis/QC/FastQC/{sample}",
+        time=config.get("fastqc_time", "01:00:00")
     threads: config.get("fastqc_threads", 2)
     resources:
-        mem_mb=config.get("fastqc_memory", 4000),
-        time=config.get("fastqc_time", "01:00:00")
+        mem_mb=config.get("fastqc_memory", 4000)
     shell:
         """
         set -o pipefail
@@ -115,10 +115,10 @@ rule multiqc:
     log:
         "logs/multiqc/multiqc.log"
     params:
-        outdir="Analysis/QC/MultiQC"
-    resources:
-        mem_mb=config.get("multiqc_memory", 4000),
+        outdir="Analysis/QC/MultiQC",
         time=config.get("multiqc_time", "00:30:00")
+    resources:
+        mem_mb=config.get("multiqc_memory", 4000)
     shell:
         """
         # Run MultiQC with explicit specification of input files
@@ -149,6 +149,8 @@ rule generate_trimming_params:
         params="Analysis/QC/Trimming/trimming_params.json"
     log:
         "logs/trimming/generate_params.log"
+    params:
+        time=config.get("params_time", "00:30:00")
     shell:
         """
         # Define the path to the MultiQC FastQC metrics file
