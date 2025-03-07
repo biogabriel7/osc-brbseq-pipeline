@@ -141,6 +141,8 @@ rule multiqc:
         """
 
 # Rule to generate trimming parameters
+# This rule analyzes FastQC results to determine optimal trimming parameters for each sample
+# The resulting JSON file is used by the get_fastp_params function in the main Snakefile
 rule generate_trimming_params:
     input:
         multiqc_html="Analysis/QC/MultiQC/multiqc_report.html",

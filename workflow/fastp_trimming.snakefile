@@ -60,31 +60,6 @@ def load_trimming_params():
 # Store trimming parameters
 TRIMMING_PARAMS = load_trimming_params()
 
-# Helper function to get trimming parameters for a specific sample
-def get_sample_params(sample_name):
-    """Get trimming parameters for a sample."""
-    # Try to find parameters for this sample
-    if sample_name in TRIMMING_PARAMS:
-        print(f"Found parameters for sample: {sample_name}")
-        return TRIMMING_PARAMS[sample_name]
-    
-    # Try to extract SRR ID from the sample name and use that
-    srr_match = re.search(r'(SRR\d+)', sample_name)
-    if srr_match and srr_match.group(1) in TRIMMING_PARAMS:
-        srr_id = srr_match.group(1)
-        print(f"Found parameters via SRR ID: {srr_id}")
-        return TRIMMING_PARAMS[srr_id]
-    
-    # No match found, use default parameters
-    print(f"No parameters found for {sample_name}. Using defaults.")
-    return {
-        "leading_quality": config.get("leading_quality", 3),
-        "trailing_quality": config.get("trailing_quality", 3),
-        "sliding_window": config.get("sliding_window", "4:15"),
-        "min_length": config.get("min_length", 36),
-        "customized": False
-    }
-
 # Rule to run trimming for all samples
 rule trim_all:
     input:
@@ -107,8 +82,8 @@ rule fastp:
     log:
         "logs/trimming/{sample}.log"
     params:
-        # Update to use only the sample name
-        sample_params=lambda wildcards: get_sample_params(wildcards.sample),
+        # Use the get_fastp_params function from the main Snakefile
+        fastp_opts=lambda wildcards: get_fastp_params(wildcards),
         time=config.get("trimming_time", "02:00:00")
     threads: config.get("trimming_threads", 4)
     resources:
@@ -125,53 +100,7 @@ rule fastp:
         echo "Input R2: {input.r2}" >> {log}
         echo "Output R1: {output.r1}" >> {log}
         echo "Output R2: {output.r2}" >> {log}
-        
-        # Extract parameters
-        PARAMS='{params.sample_params}'
-        echo "Parameters: $PARAMS" >> {log}
-        
-        # Extract quality settings using a temporary JSON file to avoid shell quoting issues
-        echo $PARAMS > params_temp.json
-        LEADING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('leading_quality', 3))")
-        TRAILING_QUALITY=$(python -c "import json; print(json.load(open('params_temp.json')).get('trailing_quality', 3))")
-        MIN_LENGTH=$(python -c "import json; print(json.load(open('params_temp.json')).get('min_length', 36))")
-        
-        # Parse sliding window into components
-        SLIDING_WINDOW=$(python -c "import json; print(json.load(open('params_temp.json')).get('sliding_window', '4:15'))")
-        WINDOW_SIZE=$(echo $SLIDING_WINDOW | cut -d: -f1)
-        WINDOW_QUALITY=$(echo $SLIDING_WINDOW | cut -d: -f2)
-        
-        echo "Extracted parameters:" >> {log}
-        echo "  Leading quality: $LEADING_QUALITY" >> {log}
-        echo "  Trailing quality: $TRAILING_QUALITY" >> {log}
-        echo "  Min length: $MIN_LENGTH" >> {log}
-        echo "  Window size: $WINDOW_SIZE" >> {log}
-        echo "  Window quality: $WINDOW_QUALITY" >> {log}
-        
-        # Build custom options
-        CUSTOM_OPTS=""
-        
-        # Check for specific flags
-        DEDUP=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('deduplication', False) else 'false')")
-        if [ "$DEDUP" = "true" ]; then
-            CUSTOM_OPTS="$CUSTOM_OPTS --dedup"
-            echo "  Using deduplication" >> {log}
-        fi
-        
-        TRIM_POLY_G=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('trim_poly_g', False) else 'false')")
-        if [ "$TRIM_POLY_G" = "true" ]; then
-            CUSTOM_OPTS="$CUSTOM_OPTS --trim_poly_g"
-            echo "  Using poly-G trimming" >> {log}
-        fi
-        
-        LOW_COMPLEXITY=$(python -c "import json; print('true' if json.load(open('params_temp.json')).get('low_complexity_filter', False) else 'false')")
-        if [ "$LOW_COMPLEXITY" = "true" ]; then
-            CUSTOM_OPTS="$CUSTOM_OPTS --low_complexity_filter"
-            echo "  Using low complexity filter" >> {log}
-        fi
-        
-        # Clean up temporary file
-        rm params_temp.json
+        echo "Parameters: {params.fastp_opts}" >> {log}
         
         # Run fastp with auto-adapter detection and determined parameters
         echo "Running fastp..." >> {log}
@@ -183,17 +112,8 @@ rule fastp:
             --html {output.html} \
             --json {output.json} \
             --thread {threads} \
-            --qualified_quality_phred $TRAILING_QUALITY \
-            --unqualified_percent_limit 40 \
-            --cut_front \
-            --cut_front_window_size $WINDOW_SIZE \
-            --cut_front_mean_quality $WINDOW_QUALITY \
-            --cut_tail \
-            --cut_tail_window_size $WINDOW_SIZE \
-            --cut_tail_mean_quality $WINDOW_QUALITY \
-            --length_required $MIN_LENGTH \
             --detect_adapter_for_pe \
-            $CUSTOM_OPTS \
+            {params.fastp_opts} \
             >> {log} 2>&1
         
         # Verify outputs
