@@ -55,8 +55,7 @@ The workflow is designed to be modular, with clear dependencies between stages a
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/rna-seq-workflow.git
-   cd rna-seq-workflow
+   git clone https://github.com/TheSaezAtienzarLab/osc-rnaseq-pipeline.git
    ```
 
 2. Create the necessary directories:
