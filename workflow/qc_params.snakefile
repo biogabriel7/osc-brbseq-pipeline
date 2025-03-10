@@ -2,6 +2,11 @@ import os
 from snakemake.utils import min_version
 min_version("6.0")
 
+# Define SAMPLES as an empty dict if not already defined (for syntax checking)
+if 'SAMPLES' not in globals():
+    SAMPLES = {}
+    config = {}
+
 # Note: No configfile statement here anymore - config is loaded in main Snakefile
 
 # Rule to generate all QC outputs

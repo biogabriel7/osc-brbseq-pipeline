@@ -70,8 +70,8 @@ snakemake --snakefile Snakefile \
     --cluster "sbatch \
         --parsable \
         --job-name=sm.{rule} \
-        --time={params.time} \
-        --mem={resources.mem_mb}M \
+        --time={cluster.time} \
+        --mem={cluster.mem_mb}M \
         --cpus-per-task={threads} \
         --account=PAS2598 \
         --output=logs/slurm/{rule}_%j.out \

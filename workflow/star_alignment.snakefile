@@ -1,6 +1,11 @@
 from snakemake.utils import min_version
 min_version("6.0")
 
+# Define SAMPLES as an empty dict if not already defined (for syntax checking)
+if 'SAMPLES' not in globals():
+    SAMPLES = {}
+    config = {}
+
 # No configfile import - config is loaded in main Snakefile
 
 # Rule to run alignment for all samples
