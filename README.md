@@ -193,9 +193,9 @@ This workflow is available under the MIT License.
 If you use this workflow in your research, please cite:
 
 ```
-Author, A. (Year). RNA-seq Analysis Workflow. GitHub Repository. https://github.com/yourusername/rna-seq-workflow
+Saez Atienzar Lab. (2025). OSC-optimized RNA-seq Analysis Workflow. GitHub Repository. https://github.com/TheSaezAtienzarLab/osc-rnaseq-pipeline
 ```
 
 ## Contact
 
-For questions or issues, please open an issue on GitHub or contact [your email]. 
+For questions or issues, please open an issue on GitHub or contact [gabriel.duarte@osumc.edu].

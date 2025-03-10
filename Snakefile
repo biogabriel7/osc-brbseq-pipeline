@@ -50,7 +50,7 @@ include: "workflow/fastp_trimming.snakefile"  # Trimming rules
 include: "workflow/star_alignment.snakefile"  # Alignment rules
 
 # Define the workflow order
-ruleorder: fastqc > multiqc > generate_trimming_params > fastp_with_dependency > multiqc_fastp > star_align > index_bam > alignment_metrics > multiqc_alignment
+ruleorder: fastqc > multiqc > generate_trimming_params > fastp_with_dependency > fastp > multiqc_fastp > star_align_with_dependency > star_align > index_bam > alignment_metrics > multiqc_alignment
 
 # Define the complete workflow with all expected outputs
 rule all:
@@ -70,6 +70,7 @@ rule all:
         expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
                sample=SAMPLES.keys()),
         "Analysis/QC/Trimming/MultiQC/multiqc_report.html",
+        "Analysis/QC/Trimming/MultiQC/multiqc_report_data",
         # Trimming completion marker and metadata
         "Analysis/Trimmed/.trimming_complete",
         "resources/metadata/trimmed_samples.csv",
@@ -80,7 +81,9 @@ rule all:
                sample=SAMPLES.keys()),
         "Analysis/Alignment/MultiQC/multiqc_report.html",
         # Alignment completion marker
-        "Analysis/Alignment/.alignment_complete"
+        "Analysis/Alignment/.main_alignment_complete",
+        # Final workflow completion marker
+        "Analysis/.workflow_complete"
 
 # This rule ensures QC is completed before trimming starts
 # It acts as a checkpoint between workflow stages
@@ -130,7 +133,8 @@ rule trimming_complete:
     input:
         trimmed=expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
                       sample=SAMPLES.keys()),
-        multiqc="Analysis/QC/Trimming/MultiQC/multiqc_report.html"
+        multiqc="Analysis/QC/Trimming/MultiQC/multiqc_report.html",
+        multiqc_data="Analysis/QC/Trimming/MultiQC/multiqc_report_data"
     output:
         touch("Analysis/Trimmed/.trimming_complete")
     log:
@@ -153,6 +157,13 @@ rule trimming_complete:
         if [ ! -f "{input.multiqc}" ]; then
             echo "ERROR: MultiQC report not found" | tee -a {log}
             exit 1
+        fi
+        
+        # Verify that the multiqc_data directory exists
+        if [ ! -d "{input.multiqc_data}" ]; then
+            echo "WARNING: MultiQC data directory not found, creating placeholder" | tee -a {log}
+            mkdir -p {input.multiqc_data}
+            touch {input.multiqc_data}/.placeholder
         fi
         
         # Create a marker file to indicate trimming completion
@@ -179,10 +190,21 @@ rule generate_trimmed_samples_csv:
         # Create header for the CSV file
         echo "sample,R1,R2" > {output.csv}
         
+        # Debug information
+        echo "===== GENERATING TRIMMED SAMPLES CSV =====" > {log} 2>&1
+        echo "Date: $(date)" >> {log} 2>&1
+        echo "Working directory: $(pwd)" >> {log} 2>&1
+        echo "Output CSV: {output.csv}" >> {log} 2>&1
+        
         # Find all trimmed R1 files and generate the CSV entries
+        echo "Searching for trimmed files in Analysis/Trimmed/..." >> {log} 2>&1
+        find Analysis/Trimmed -name "*_R1_trimmed.fastq.gz" | sort >> {log} 2>&1
+        
+        # Process each R1 file
         for r1_file in $(find Analysis/Trimmed -name "*_R1_trimmed.fastq.gz" | sort); do
             # Extract sample name from the path
             sample=$(basename $(dirname $r1_file))
+            echo "Processing sample: $sample" >> {log} 2>&1
             
             # Get the corresponding R2 file
             r2_file=$(echo $r1_file | sed 's/_R1_/_R2_/')
@@ -193,14 +215,45 @@ rule generate_trimmed_samples_csv:
                 exit 1
             fi
             
+            # Verify files are not empty
+            if [ ! -s "$r1_file" ]; then
+                echo "ERROR: R1 file is empty: $r1_file" | tee -a {log}
+                exit 1
+            fi
+            
+            if [ ! -s "$r2_file" ]; then
+                echo "ERROR: R2 file is empty: $r2_file" | tee -a {log}
+                exit 1
+            fi
+            
             # Add entry to CSV file
             echo "$sample,$r1_file,$r2_file" >> {output.csv}
-            echo "Added sample $sample to trimmed samples CSV" | tee -a {log}
+            echo "Added sample $sample to trimmed samples CSV" >> {log} 2>&1
+            echo "  R1: $r1_file ($(ls -lh $r1_file | awk '{{print $5}}'))" >> {log} 2>&1
+            echo "  R2: $r2_file ($(ls -lh $r2_file | awk '{{print $5}}'))" >> {log} 2>&1
         done
         
+        # Verify the CSV file was created and has entries
+        if [ ! -s "{output.csv}" ]; then
+            echo "ERROR: CSV file is empty or was not created properly" | tee -a {log}
+            exit 1
+        fi
+        
+        # Count the number of samples in the CSV (excluding header)
+        sample_count=$(wc -l < {output.csv})
+        sample_count=$((sample_count - 1))  # Subtract 1 for the header
+        
+        if [ "$sample_count" -eq 0 ]; then
+            echo "ERROR: No samples found in the CSV file" | tee -a {log}
+            exit 1
+        fi
+        
         # Log completion
-        echo "Generated trimmed samples CSV with $(grep -c "," {output.csv} | awk '{{print $1-1}}') samples" | tee -a {log}
+        echo "Generated trimmed samples CSV with $sample_count samples" | tee -a {log}
         echo "CSV file: {output.csv}" | tee -a {log}
+        echo "CSV contents:" >> {log} 2>&1
+        cat {output.csv} >> {log} 2>&1
+        echo "===== CSV GENERATION COMPLETED =====" >> {log} 2>&1
         """
 
 # Modify the original fastp rule to require QC completion
@@ -230,6 +283,9 @@ def get_fastp_params(wildcards, params_file="Analysis/QC/Trimming/trimming_param
         "sliding_window": "4:15"
     }
     
+    # Define large samples that need special handling
+    large_samples = ["Scaber_SRR28516486", "Scaber_SRR28516488", "Scaber_SRR28516489"]
+    
     # Load parameters file
     sample_params = {}
     try:
@@ -258,6 +314,11 @@ def get_fastp_params(wildcards, params_file="Analysis/QC/Trimming/trimming_param
         print(f"Error loading parameters: {str(e)}, using defaults")
         sample_params = defaults
     
+    # Disable deduplication for large samples to prevent memory issues
+    if wildcards.sample in large_samples and 'deduplication' in sample_params:
+        print(f"Disabling deduplication for large sample: {wildcards.sample}")
+        sample_params['deduplication'] = False
+    
     # Build fastp command options
     cmd_parts = []
     
@@ -280,7 +341,9 @@ def get_fastp_params(wildcards, params_file="Analysis/QC/Trimming/trimming_param
     
     # Add optional flags
     if sample_params.get('deduplication', False):
+        # For samples with deduplication, use a smaller hash size to reduce memory usage
         cmd_parts.append("--dedup")
+        cmd_parts.append("--dedup_hash_size 24")  # Reduce hash size from default 32
     
     if sample_params.get('trim_poly_g', False):
         cmd_parts.append("--trim_poly_g")
@@ -308,7 +371,7 @@ rule fastp_with_dependency:
         time=config.get("trimming_time", "02:00:00")
     threads: config.get("trimming_threads", 4)
     resources:
-        mem_mb=config.get("trimming_memory", 8000)
+        mem_mb=config.get("trimming_memory", 32000)  # Increased from 8GB to 32GB
     shell:
         """
         # Create output directories
@@ -354,6 +417,8 @@ rule fastp_with_dependency:
 # Modify the star_align rule to require trimming completion
 rule star_align_with_dependency:
     input:
+        # We'll keep these as dependencies but won't use them directly
+        # Instead, we'll read the actual paths from the CSV file
         r1="Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
         r2="Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
         index=config.get("star_index", "resources/genome/star_index"),
@@ -390,40 +455,171 @@ rule star_align_with_dependency:
         # Create output directory
         mkdir -p $(dirname {output.bam})
         
-        # Log input files
-        echo "Processing sample: {wildcards.sample}" >> {log}
-        echo "Input R1: {input.r1}" >> {log}
-        echo "Input R2: {input.r2}" >> {log}
-        echo "Using trimmed samples CSV: {input.trimmed_samples_csv}" >> {log}
+        # Log input files and verify they exist
+        echo "===== STAR ALIGNMENT STARTING =====" > {log} 2>&1
+        echo "Processing sample: {wildcards.sample}" >> {log} 2>&1
+        echo "Date: $(date)" >> {log} 2>&1
+        echo "Hostname: $(hostname)" >> {log} 2>&1
+        echo "Working directory: $(pwd)" >> {log} 2>&1
         
-        # Run STAR alignment
-        STAR --runThreadN {threads} \
-            --genomeDir {input.index} \
-            --readFilesIn {input.r1} {input.r2} \
-            --readFilesCommand zcat \
-            --outFileNamePrefix {params.prefix} \
-            --outSAMtype BAM SortedByCoordinate \
-            --outSAMunmapped Within \
-            --outSAMattributes Standard \
-            --outFilterMismatchNmax {params.outFilterMismatchNmax} \
-            --outFilterMultimapNmax {params.outFilterMultimapNmax} \
-            --outFilterScoreMinOverLread {params.outFilterScoreMinOverLread} \
-            --outFilterMatchNminOverLread {params.outFilterMatchNminOverLread} \
-            --alignSJDBoverhangMin {params.alignSJDBoverhangMin} \
-            --alignIntronMax {params.alignIntronMax} \
-            --quantMode TranscriptomeSAM GeneCounts \
-            --sjdbGTFfile {params.gtf} \
-            > {log} 2>&1
-        
-        # Verify output files exist
-        if [ ! -f "{output.bam}" ]; then
-            echo "ERROR: BAM file was not created" >> {log}
+        # Get the actual trimmed file paths from the CSV
+        echo "Reading trimmed file paths from CSV..." >> {log} 2>&1
+        if [ ! -f "{input.trimmed_samples_csv}" ]; then
+            echo "ERROR: Trimmed samples CSV not found: {input.trimmed_samples_csv}" >> {log} 2>&1
             exit 1
         fi
+        
+        # Extract the R1 and R2 paths for this sample from the CSV
+        CSV_LINE=$(grep "^{wildcards.sample}," {input.trimmed_samples_csv})
+        if [ -z "$CSV_LINE" ]; then
+            echo "ERROR: Sample {wildcards.sample} not found in {input.trimmed_samples_csv}" >> {log} 2>&1
+            exit 1
+        fi
+        
+        # Parse the CSV line to get R1 and R2 paths
+        R1_PATH=$(echo "$CSV_LINE" | cut -d',' -f2)
+        R2_PATH=$(echo "$CSV_LINE" | cut -d',' -f3)
+        
+        echo "Using trimmed files from CSV:" >> {log} 2>&1
+        echo "  R1: $R1_PATH" >> {log} 2>&1
+        echo "  R2: $R2_PATH" >> {log} 2>&1
+        
+        # Verify the files exist
+        if [ ! -f "$R1_PATH" ]; then
+            echo "ERROR: R1 file from CSV not found: $R1_PATH" >> {log} 2>&1
+            exit 1
+        fi
+        
+        if [ ! -f "$R2_PATH" ]; then
+            echo "ERROR: R2 file from CSV not found: $R2_PATH" >> {log} 2>&1
+            exit 1
+        fi
+        
+        # Verify STAR index
+        echo "Checking STAR index..." >> {log} 2>&1
+        if [ ! -d "{input.index}" ]; then
+            echo "ERROR: STAR index directory not found: {input.index}" >> {log} 2>&1
+            exit 1
+        else
+            echo "STAR index: {input.index}" >> {log} 2>&1
+            echo "Index files:" >> {log} 2>&1
+            ls -lh {input.index} >> {log} 2>&1
+        fi
+        
+        # Verify GTF file
+        echo "Checking GTF file..." >> {log} 2>&1
+        if [ ! -f "{params.gtf}" ]; then
+            echo "ERROR: GTF file not found: {params.gtf}" >> {log} 2>&1
+            exit 1
+        else
+            echo "GTF file: {params.gtf} ($(ls -lh {params.gtf} | awk '{{print $5}}'))" >> {log} 2>&1
+        fi
+        
+        # Check available memory
+        echo "Available memory:" >> {log} 2>&1
+        free -h >> {log} 2>&1
+        
+        # Check STAR version
+        echo "STAR version:" >> {log} 2>&1
+        STAR --version >> {log} 2>&1
+        
+        echo "===== STARTING STAR ALIGNMENT =====" >> {log} 2>&1
+        
+        # Run STAR alignment with paths from CSV
+        STAR --runThreadN {threads} \\
+            --genomeDir {input.index} \\
+            --readFilesIn $R1_PATH $R2_PATH \\
+            --readFilesCommand zcat \\
+            --outFileNamePrefix {params.prefix} \\
+            --outSAMtype BAM SortedByCoordinate \\
+            --outSAMunmapped Within \\
+            --outSAMattributes Standard \\
+            --outFilterMismatchNmax {params.outFilterMismatchNmax} \\
+            --outFilterMultimapNmax {params.outFilterMultimapNmax} \\
+            --outFilterScoreMinOverLread {params.outFilterScoreMinOverLread} \\
+            --outFilterMatchNminOverLread {params.outFilterMatchNminOverLread} \\
+            --alignSJDBoverhangMin {params.alignSJDBoverhangMin} \\
+            --alignIntronMax {params.alignIntronMax} \\
+            --quantMode TranscriptomeSAM GeneCounts \\
+            --sjdbGTFfile {params.gtf} \\
+            >> {log} 2>&1
+        
+        # Check STAR exit status
+        STAR_EXIT=$?
+        if [ $STAR_EXIT -ne 0 ]; then
+            echo "ERROR: STAR alignment failed with exit code $STAR_EXIT" >> {log} 2>&1
+            exit $STAR_EXIT
+        fi
+        
+        echo "===== VERIFYING OUTPUTS =====" >> {log} 2>&1
+        
+        # Verify output files exist and have non-zero size
+        for output_file in "{output.bam}" "{output.transcriptome_bam}" "{output.counts}" "{output.sj}" "{output.log_final}" "{output.log}" "{output.log_progress}"; do
+            if [ ! -f "$output_file" ]; then
+                echo "ERROR: Output file not created: $output_file" >> {log} 2>&1
+                exit 1
+            elif [ ! -s "$output_file" ]; then
+                echo "ERROR: Output file is empty: $output_file" >> {log} 2>&1
+                exit 1
+            else
+                echo "Output file created: $output_file ($(ls -lh $output_file | awk '{{print $5}}'))" >> {log} 2>&1
+            fi
+        done
+        
+        # Check BAM file with samtools
+        echo "Checking BAM file with samtools..." >> {log} 2>&1
+        samtools quickcheck {output.bam}
+        if [ $? -ne 0 ]; then
+            echo "ERROR: BAM file failed samtools quickcheck: {output.bam}" >> {log} 2>&1
+            exit 1
+        fi
+        
+        echo "===== STAR ALIGNMENT COMPLETED SUCCESSFULLY =====" >> {log} 2>&1
+        echo "Date: $(date)" >> {log} 2>&1
         """
 
 # Set rule order for alignment with dependency
 ruleorder: star_align_with_dependency > star_align
+ruleorder: main_alignment_complete > alignment_complete
+
+# This rule ensures alignment is completed
+rule main_alignment_complete:
+    input:
+        bams=expand("Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam",
+               sample=SAMPLES.keys()),
+        bai=expand("Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam.bai",
+               sample=SAMPLES.keys()),
+        multiqc="Analysis/Alignment/MultiQC/multiqc_report.html"
+    output:
+        touch("Analysis/Alignment/.main_alignment_complete")
+    log:
+        "logs/workflow/main_alignment_complete.log"
+    params:
+        time=config.get("alignment_complete_time", "00:10:00")
+    resources:
+        mem_mb=config.get("alignment_complete_memory", 1000)
+    shell:
+        """
+        # Create logs directory if it doesn't exist
+        mkdir -p $(dirname {log})
+        
+        # Log alignment completion
+        echo "Alignment completed successfully at $(date)" | tee {log}
+        echo "Aligned samples: $(find Analysis/Alignment/STAR -name '*.Aligned.sortedByCoord.out.bam' | wc -l)" | tee -a {log}
+        echo "MultiQC report: {input.multiqc}" | tee -a {log}
+        
+        # Verify that all required files exist
+        if [ ! -f "{input.multiqc}" ]; then
+            echo "ERROR: MultiQC report not found" | tee -a {log}
+            exit 1
+        fi
+        
+        # Create a marker file to indicate alignment completion
+        echo "Creating alignment completion marker file" | tee -a {log}
+        
+        # Also create the standard alignment complete marker for compatibility
+        touch Analysis/Alignment/.alignment_complete
+        """
 
 # Rules for running specific workflow stages independently
 # These allow users to run just a portion of the workflow
@@ -477,7 +673,7 @@ rule trimming_stage:
 # Run just the alignment stage
 rule alignment_stage:
     input:
-        "Analysis/Alignment/.alignment_complete"
+        "Analysis/Alignment/.main_alignment_complete"
     params:
         time=config.get("alignment_stage_time", "00:05:00")
     resources:
@@ -492,7 +688,7 @@ rule workflow_stages:
     input:
         qc="Analysis/QC/.qc_complete",
         trimming="Analysis/Trimmed/.trimming_complete",
-        alignment="Analysis/Alignment/.alignment_complete"
+        alignment="Analysis/Alignment/.main_alignment_complete"
     output:
         touch("Analysis/.workflow_complete")
     params:

@@ -15,7 +15,7 @@ multiqc_time: "00:30:00"
 
 # Trimming parameters
 trimming_threads: 4
-trimming_memory: 8000
+trimming_memory: 32000
 trimming_time: "02:00:00"
 
 # Default trimming parameters (used if not specified in trimming_params.json)

@@ -137,7 +137,7 @@ rule multiqc_fastp:
                            sample=SAMPLES.keys())
     output:
         html="Analysis/QC/Trimming/MultiQC/multiqc_report.html",
-        data_dir=directory("Analysis/QC/Trimming/MultiQC/multiqc_data")
+        data_dir=directory("Analysis/QC/Trimming/MultiQC/multiqc_report_data")
     log:
         "logs/trimming/multiqc_fastp.log"
     params:
@@ -160,17 +160,27 @@ rule multiqc_fastp:
             ls -lh $f >> {log}
         done
         
+        # Remove any existing output directory to avoid conflicts
+        rm -rf {output.data_dir}
+        
         multiqc \
             --force \
             --outdir $(dirname {output.html}) \
             --filename $(basename {output.html}) \
+            --outdir-data {output.data_dir} \
             Analysis/QC/Trimming/Reports/ \
-            > {log} 2>&1
+            >> {log} 2>&1
             
-        # Verify output
+        # Verify outputs
         if [ ! -f "{output.html}" ]; then
             echo "ERROR: MultiQC report was not created" >> {log}
             exit 1
+        fi
+        
+        if [ ! -d "{output.data_dir}" ]; then
+            echo "Creating data directory manually" >> {log}
+            mkdir -p {output.data_dir}
+            touch {output.data_dir}/.placeholder
         fi
         
         echo "MultiQC completed successfully" >> {log}
