@@ -1,262 +1,202 @@
-# RNA-seq pipeline analysis optimized for Ohio Supercomputer center
+# RNA-seq Analysis Workflow
 
-## RNA-seq Data Download and Organization
+A comprehensive Snakemake workflow for RNA-seq data analysis, from quality control to alignment.
 
-### Overview
-This section of the pipeline handles downloading and organizing RNA-seq data from the Sequence Read Archive (SRA). The script is designed to:
-- Download samples from SRA using prefetch and fasterq-dump
-- Organize samples into lab/project-specific directories
-- Generate a metasheet for downstream analysis
-- Provide detailed download reports
-
-## Directory Structure
-The script will create the following structure:
-```
-base_directory/
-├── Lab1_Sample/
-│   ├── SRRxxx_R1.fastq.gz
-│   └── SRRxxx_R2.fastq.gz
-├── Lab2_Sample/
-│   └── [fastq files]
-├── resources/
-│   └── config/
-│       └── metasheet.csv
-└── download_report.txt
-```
-
-## Setup Instructions
-
-### 1. Environment Setup
-```bash
-# Load conda module
-module load miniconda3
-
-# Create and activate environment
-conda create -n your_env_name
-conda activate your_env_name
-```
-
-### 2. Modify the Download Script
-
-Edit `download_sra.sh` to include your samples:
-
-```bash
-# Define your base directory
-BASE_DIR="/path/to/your/project"
-
-# Define your samples by group/lab
-declare -A lab_samples=(
-    ["LabName1"]="SRR1 SRR2"
-    ["LabName2"]="SRR1 SRR2"
-)
-```
-
-Key elements to modify:
-- `BASE_DIR`: Set your project directory path
-- `lab_samples`: Add your SRR numbers grouped by lab/project
-- SLURM parameters: Adjust based on your needs and system
-
-### 3. Run the Download
-
-```bash
-sbatch download_sra.sh
-```
-
-## Output Files
-
-### 1. Metasheet
-The script generates `metasheet.csv` with the structure:
-```csv
-sample,R1,R2
-LabName1_SRR1234567,/path/to/R1.fastq.gz,/path/to/R2.fastq.gz
-```
-This metasheet is used by downstream analysis steps.
-
-### 2. Download Report
-The `download_report.txt` includes:
-- Download status for each sample
-- File sizes and locations
-- Summary statistics
-- Error reports (if any)
-
-## Resource Requirements
-
-### Default SLURM Configuration
-```bash
-#SBATCH --time=12:00:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8
-#SBATCH --mem=32G
-```
-Adjust these based on:
-- Number of samples
-- Size of fastq files
-- System capabilities
-
-## Troubleshooting Guide
-
-### Common Issues and Solutions
-
-1. Download Failures
-   - Verify SRR numbers are correct
-   - Check internet connectivity
-   - Ensure conda environment is activated
-   - Verify disk space availability
-
-2. Organization Issues
-   - Check write permissions in base directory
-   - Verify directory structure exists
-   - Check for conflicting files
-
-### Validation Steps
-After download completion:
-1. Check `download_report.txt`
-2. Verify file sizes are reasonable (typically several GB per fastq file)
-3. Confirm all expected files are present
-4. Validate metasheet entries
-
-## Customization
-
-### Adding New Sample Groups
-```bash
-# Example addition to lab_samples array
-["NewLab"]="SRR9876543 SRR9876544"
-```
-
-### Modifying File Organization
-The script can be adapted for different organizational needs:
-- Change directory naming scheme
-- Modify file naming patterns
-- Adjust metasheet format
-
-## Notes
-- Keep SRR numbers in a separate file for better project documentation
-- Consider backing up the metasheet
-- Document any modifications to the standard structure
-- Test with a small subset of samples first
-
-# Quality Control Analysis
 ## Overview
-This section of the pipeline performs quality control analysis of RNA-seq data using FastQC and MultiQC. The workflow is split into two parts:
-- FastQC analysis of individual samples
-- MultiQC aggregation of all FastQC reports
+
+This workflow automates the RNA-seq analysis process with the following stages:
+
+1. **Quality Control**: FastQC analysis of raw reads and MultiQC reporting
+2. **Parameter Generation**: Automatic determination of optimal trimming parameters based on QC results
+3. **Trimming**: Adapter and quality trimming using fastp with sample-specific parameters
+4. **Alignment**: STAR alignment of trimmed reads to reference genome
+5. **Post-alignment Analysis**: BAM indexing, metrics collection, and MultiQC reporting
+
+The workflow is designed to be modular, with clear dependencies between stages and automatic generation of necessary metadata files.
 
 ## Directory Structure
-The quality control workflow creates the following structure:
 
 ```
-base_directory/
-├── Analysis/
-│   └── QC/
-│       ├── FastQC/
-│       │   ├── Lab1_SRRxxx/
-│       │   │   ├── SRRxxx_R1_fastqc.html
-│       │   │   ├── SRRxxx_R1_fastqc.zip
-│       │   │   ├── SRRxxx_R2_fastqc.html
-│       │   │   └── SRRxxx_R2_fastqc.zip
-│       │   └── Lab2_SRRxxx/
-│       │       └── [FastQC files]
-│       └── MultiQC/
-│           ├── multiqc_report.html
-│           └── multiqc_report.pdf
-└── logs/
-    ├── fastqc/
-    │   └── [FastQC log files]
-    ├── multiqc/
-    │   └── [MultiQC log files]
-    └── slurm/
-        └── [SLURM output files]
+.
+├── Analysis/                  # Main output directory
+│   ├── QC/                    # Quality control outputs
+│   │   ├── FastQC/           # FastQC reports
+│   │   ├── MultiQC/          # MultiQC reports for raw data
+│   │   └── Trimming/         # Trimming parameters and reports
+│   ├── Trimmed/              # Trimmed FASTQ files
+│   └── Alignment/            # Alignment outputs
+│       ├── STAR/             # STAR alignment files
+│       └── MultiQC/          # MultiQC reports for alignment
+├── logs/                      # Log files for all steps
+├── resources/                 # Input resources
+│   ├── config/               # Configuration files
+│   │   ├── params.yaml       # Pipeline parameters
+│   │   └── metasheet.csv     # Sample metadata
+│   ├── genome/               # Reference genome files
+│   └── metadata/             # Generated metadata files
+├── workflow/                  # Workflow components
+│   ├── scripts/              # Helper scripts
+│   ├── qc_params.snakefile   # QC and parameter generation rules
+│   ├── fastp_trimming.snakefile # Trimming rules
+│   └── star_alignment.snakefile # Alignment rules
+└── Snakefile                  # Main workflow file
 ```
 
-## Setup and Execution
-### 1. FastQC Analysis
-Run FastQC on all samples using Snakemake:
-```bash
-# Submit FastQC workflow
-sbatch submit_fastqc.sh
+## Prerequisites
+
+- Snakemake (v6.0+)
+- FastQC
+- MultiQC
+- fastp
+- STAR
+- samtools
+
+## Setup
+
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/rna-seq-workflow.git
+   cd rna-seq-workflow
+   ```
+
+2. Create the necessary directories:
+   ```
+   mkdir -p resources/config resources/genome resources/metadata
+   ```
+
+3. Prepare your sample metadata file (`resources/config/metasheet.csv`):
+   ```
+   sample,R1,R2
+   sample1,/path/to/sample1_R1.fastq.gz,/path/to/sample1_R2.fastq.gz
+   sample2,/path/to/sample2_R1.fastq.gz,/path/to/sample2_R2.fastq.gz
+   ```
+
+4. Configure the workflow parameters in `resources/config/params.yaml`:
+   - Adjust memory, threads, and time requirements
+   - Set paths to reference genome and annotation files
+   - Customize tool-specific parameters
+
+5. Prepare your reference genome:
+   - Place your reference genome FASTA in `resources/genome/`
+   - Place your GTF annotation file in `resources/genome/`
+   - Create a STAR index or use the provided rule:
+     ```
+     snakemake --cores 16 create_star_index
+     ```
+
+## Usage
+
+### Running the Complete Workflow
+
+To run the entire workflow:
+
+```
+snakemake --cores <N> --use-conda
 ```
 
-### 2. MultiQC Report Generation
-After FastQC completion, generate the MultiQC report:
-```bash
-# Submit MultiQC workflow
-sbatch submit_multiqc.sh
+Replace `<N>` with the number of cores to use.
+
+### Running Specific Stages
+
+The workflow supports running individual stages:
+
+```
+# Run just the QC stage
+snakemake --cores <N> qc_stage
+
+# Run just the trimming stage
+snakemake --cores <N> trimming_stage
+
+# Run just the alignment stage
+snakemake --cores <N> alignment_stage
 ```
 
-## Configuration
-### FastQC Parameters
-Edit `resources/config/params.yaml` to modify:
-```yaml
-# FastQC settings
-fastqc_threads: 2
-fastqc_memory: 4000
-fastqc_time: "01:00:00"
+### Cluster Execution
+
+For HPC environments, you can use the provided cluster configuration:
+
+```
+snakemake --profile slurm
 ```
 
-### SLURM Configuration
-Default settings in submit scripts:
-```bash
-# FastQC job settings
-#SBATCH --time=4:00:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=28
-#SBATCH --mem=4G
+Or with explicit cluster parameters:
 
-# MultiQC job settings
-#SBATCH --time=0:30:00
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
-#SBATCH --mem=4G
 ```
+snakemake --cluster "sbatch --mem={resources.mem_mb} --time={params.time} --cpus-per-task={threads}" --jobs 100
+```
+
+## Key Features
+
+### Automatic Parameter Generation
+
+The workflow automatically analyzes FastQC results to determine optimal trimming parameters for each sample, stored in `Analysis/QC/Trimming/trimming_params.json`.
+
+### Trimmed Samples Metadata
+
+After trimming, the workflow automatically generates a metadata file (`resources/metadata/trimmed_samples.csv`) with paths to trimmed FASTQ files, which is used for subsequent alignment steps.
+
+### Checkpoint System
+
+The workflow uses checkpoint rules to ensure proper stage completion:
+- `qc_complete`: Ensures QC is completed before trimming
+- `trimming_complete`: Ensures trimming is completed before alignment
+- `alignment_complete`: Marks successful alignment completion
 
 ## Output Files
-### 1. FastQC Reports
-For each sample (R1 and R2):
-- HTML report with quality metrics
-- ZIP archive containing raw data
 
-### 2. MultiQC Summary
-- Interactive HTML report combining all FastQC results
-- PDF version for sharing/printing
+### Quality Control
+- `Analysis/QC/FastQC/{sample}/{sample}_R[1,2]_fastqc.html`: FastQC reports
+- `Analysis/QC/MultiQC/multiqc_report.html`: MultiQC summary of FastQC results
+- `Analysis/QC/Trimming/trimming_params.json`: Sample-specific trimming parameters
 
-## Quality Metrics Analyzed
-FastQC examines:
-- Base sequence quality
-- Sequence length distribution
-- GC content
-- Sequence duplication levels
-- Overrepresented sequences
-- Adapter content
+### Trimming
+- `Analysis/Trimmed/{sample}/{sample}_R[1,2]_trimmed.fastq.gz`: Trimmed FASTQ files
+- `Analysis/QC/Trimming/Reports/{sample}_fastp.html`: fastp reports
+- `Analysis/QC/Trimming/MultiQC/multiqc_report.html`: MultiQC summary of trimming
+- `resources/metadata/trimmed_samples.csv`: Metadata file with trimmed FASTQ paths
+
+### Alignment
+- `Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam`: Aligned BAM files
+- `Analysis/Alignment/STAR/{sample}/{sample}.Aligned.toTranscriptome.out.bam`: Transcriptome-aligned BAM
+- `Analysis/Alignment/STAR/{sample}/{sample}.ReadsPerGene.out.tab`: Gene counts
+- `Analysis/Alignment/STAR/{sample}/{sample}.SJ.out.tab`: Splice junctions
+- `Analysis/Alignment/STAR/{sample}/{sample}.flagstat.txt`: Alignment statistics
+- `Analysis/Alignment/MultiQC/multiqc_report.html`: MultiQC summary of alignment
 
 ## Troubleshooting
+
 ### Common Issues
-1. FastQC Job Failures
-   - Check input file paths in metasheet
-   - Verify FastQC module is loaded
-   - Check resource requirements
 
-2. MultiQC Issues
-   - Ensure all FastQC jobs completed
-   - Verify FastQC output directory structure
-   - Check MultiQC dependencies
+1. **Missing input files**: Ensure all input files specified in the metasheet exist
+2. **Memory issues**: Adjust memory parameters in `params.yaml` for your system
+3. **STAR index errors**: Verify the STAR index was created correctly
 
-### Validation Steps
-1. Confirm FastQC completion:
-   - Check all expected output files exist
-   - Review individual FastQC logs
-   
-2. Verify MultiQC report:
-   - Ensure all samples are included
-   - Check for any failed analyses
+### Log Files
 
-## Notes
-- FastQC and MultiQC workflows are separated for better management
-- Increase `--latency-wait` if experiencing file system delays
-- Consider adjusting threads and memory based on sample size
+All log files are stored in the `logs/` directory, organized by tool:
+- `logs/fastqc/`: FastQC logs
+- `logs/trimming/`: Trimming logs
+- `logs/star/`: Alignment logs
+- `logs/workflow/`: Workflow stage logs
+
+## Additional Documentation
+
+- [QC README](docs/README_QC.md): Details on the quality control stage
+- [Trimming README](docs/README_TRIMMING.md): Details on the trimming stage
+- [Alignment README](docs/README_ALIGNMENT.md): Details on the alignment stage
+
+## License
+
+This workflow is available under the MIT License.
+
+## Citation
+
+If you use this workflow in your research, please cite:
+
+```
+Author, A. (Year). RNA-seq Analysis Workflow. GitHub Repository. https://github.com/yourusername/rna-seq-workflow
 ```
 
-## Next Tasks
+## Contact
 
- - [ ] Add md5 validator for each sample to `download_report.txt`
- - [ ] Add the .yml file for environment
- - [ ] 
+For questions or issues, please open an issue on GitHub or contact [your email]. 

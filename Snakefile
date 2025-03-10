@@ -7,10 +7,10 @@ min_version("6.0")
 
 # Create essential directories if they don't exist
 for dir_path in [
-    "logs/fastqc", "logs/multiqc", "logs/trimming", 
+    "logs/fastqc", "logs/multiqc", "logs/trimming", "logs/star",
     "Analysis/QC/FastQC", "Analysis/QC/MultiQC", "Analysis/QC/Trimming",
     "Analysis/QC/Trimming/Reports", "Analysis/QC/Trimming/MultiQC", 
-    "Analysis/Trimmed"
+    "Analysis/Trimmed", "Analysis/Alignment/STAR", "Analysis/Alignment/MultiQC"
 ]:
     os.makedirs(dir_path, exist_ok=True)
 
@@ -47,9 +47,10 @@ SAMPLES = get_samples_from_metasheet()
 # This brings in all the rules defined in the other files
 include: "workflow/qc_params.snakefile"     # QC and parameter generation rules
 include: "workflow/fastp_trimming.snakefile"  # Trimming rules
+include: "workflow/star_alignment.snakefile"  # Alignment rules
 
 # Define the workflow order
-ruleorder: fastqc > multiqc > generate_trimming_params > fastp_with_dependency > multiqc_fastp
+ruleorder: fastqc > multiqc > generate_trimming_params > fastp_with_dependency > multiqc_fastp > star_align > index_bam > alignment_metrics > multiqc_alignment
 
 # Define the complete workflow with all expected outputs
 rule all:
@@ -68,7 +69,18 @@ rule all:
                sample=SAMPLES.keys()),
         expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
                sample=SAMPLES.keys()),
-        "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
+        "Analysis/QC/Trimming/MultiQC/multiqc_report.html",
+        # Trimming completion marker and metadata
+        "Analysis/Trimmed/.trimming_complete",
+        "resources/metadata/trimmed_samples.csv",
+        # Alignment stage outputs
+        expand("Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam",
+               sample=SAMPLES.keys()),
+        expand("Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam.bai",
+               sample=SAMPLES.keys()),
+        "Analysis/Alignment/MultiQC/multiqc_report.html",
+        # Alignment completion marker
+        "Analysis/Alignment/.alignment_complete"
 
 # This rule ensures QC is completed before trimming starts
 # It acts as a checkpoint between workflow stages
@@ -111,6 +123,84 @@ rule qc_complete:
         
         # Create a marker file to indicate QC completion
         echo "Creating QC completion marker file" | tee -a {log}
+        """
+
+# This rule ensures trimming is completed before alignment starts
+rule trimming_complete:
+    input:
+        trimmed=expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+                      sample=SAMPLES.keys()),
+        multiqc="Analysis/QC/Trimming/MultiQC/multiqc_report.html"
+    output:
+        touch("Analysis/Trimmed/.trimming_complete")
+    log:
+        "logs/workflow/trimming_complete.log"
+    params:
+        time=config.get("trimming_complete_time", "00:10:00")
+    resources:
+        mem_mb=config.get("trimming_complete_memory", 1000)
+    shell:
+        """
+        # Create logs directory if it doesn't exist
+        mkdir -p $(dirname {log})
+        
+        # Log trimming completion
+        echo "Trimming completed successfully at $(date)" | tee {log}
+        echo "Trimmed samples: $(find Analysis/Trimmed -name '*_R1_trimmed.fastq.gz' | wc -l)" | tee -a {log}
+        echo "MultiQC report: {input.multiqc}" | tee -a {log}
+        
+        # Verify that all required files exist
+        if [ ! -f "{input.multiqc}" ]; then
+            echo "ERROR: MultiQC report not found" | tee -a {log}
+            exit 1
+        fi
+        
+        # Create a marker file to indicate trimming completion
+        echo "Creating trimming completion marker file" | tee -a {log}
+        """
+
+# Rule to generate trimmed_samples.csv file
+rule generate_trimmed_samples_csv:
+    input:
+        trimming_complete="Analysis/Trimmed/.trimming_complete"
+    output:
+        csv="resources/metadata/trimmed_samples.csv"
+    log:
+        "logs/workflow/generate_trimmed_samples.log"
+    params:
+        time=config.get("generate_trimmed_csv_time", "00:10:00")
+    resources:
+        mem_mb=config.get("generate_trimmed_csv_memory", 1000)
+    shell:
+        """
+        # Create output directory if it doesn't exist
+        mkdir -p $(dirname {output.csv})
+        
+        # Create header for the CSV file
+        echo "sample,R1,R2" > {output.csv}
+        
+        # Find all trimmed R1 files and generate the CSV entries
+        for r1_file in $(find Analysis/Trimmed -name "*_R1_trimmed.fastq.gz" | sort); do
+            # Extract sample name from the path
+            sample=$(basename $(dirname $r1_file))
+            
+            # Get the corresponding R2 file
+            r2_file=$(echo $r1_file | sed 's/_R1_/_R2_/')
+            
+            # Verify R2 file exists
+            if [ ! -f "$r2_file" ]; then
+                echo "ERROR: R2 file not found for $r1_file" | tee -a {log}
+                exit 1
+            fi
+            
+            # Add entry to CSV file
+            echo "$sample,$r1_file,$r2_file" >> {output.csv}
+            echo "Added sample $sample to trimmed samples CSV" | tee -a {log}
+        done
+        
+        # Log completion
+        echo "Generated trimmed samples CSV with $(grep -c "," {output.csv} | awk '{{print $1-1}}') samples" | tee -a {log}
+        echo "CSV file: {output.csv}" | tee -a {log}
         """
 
 # Modify the original fastp rule to require QC completion
@@ -261,6 +351,80 @@ rule fastp_with_dependency:
         ls -lh {output.r1} {output.r2} >> {log}
         """
 
+# Modify the star_align rule to require trimming completion
+rule star_align_with_dependency:
+    input:
+        r1="Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
+        r2="Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
+        index=config.get("star_index", "resources/genome/star_index"),
+        trimming_complete="Analysis/Trimmed/.trimming_complete",
+        trimmed_samples_csv="resources/metadata/trimmed_samples.csv"
+    output:
+        bam="Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam",
+        transcriptome_bam="Analysis/Alignment/STAR/{sample}/{sample}.Aligned.toTranscriptome.out.bam",
+        counts="Analysis/Alignment/STAR/{sample}/{sample}.ReadsPerGene.out.tab",
+        sj="Analysis/Alignment/STAR/{sample}/{sample}.SJ.out.tab",
+        log_final="Analysis/Alignment/STAR/{sample}/{sample}.Log.final.out",
+        log="Analysis/Alignment/STAR/{sample}/{sample}.Log.out",
+        log_progress="Analysis/Alignment/STAR/{sample}/{sample}.Log.progress.out"
+    log:
+        "logs/star/{sample}.log"
+    params:
+        # STAR alignment parameters
+        gtf=config.get("gtf_file", "resources/genome/Homo_sapiens.GRCh38.90.gtf"),
+        prefix="Analysis/Alignment/STAR/{sample}/{sample}.",
+        # STAR specific parameters
+        outFilterMismatchNmax=config.get("star_mismatch", 10),
+        outFilterMultimapNmax=config.get("star_multimap", 20),
+        outFilterScoreMinOverLread=config.get("star_score_min", 0.66),
+        outFilterMatchNminOverLread=config.get("star_match_min", 0.66),
+        alignSJDBoverhangMin=config.get("star_sjdb_overhang_min", 3),
+        alignIntronMax=config.get("star_intron_max", 500000),
+        # SLURM parameters
+        time=config.get("star_align_time", "04:00:00")
+    threads: config.get("star_threads", 8)
+    resources:
+        mem_mb=config.get("star_memory", 32000)  # 32GB
+    shell:
+        """
+        # Create output directory
+        mkdir -p $(dirname {output.bam})
+        
+        # Log input files
+        echo "Processing sample: {wildcards.sample}" >> {log}
+        echo "Input R1: {input.r1}" >> {log}
+        echo "Input R2: {input.r2}" >> {log}
+        echo "Using trimmed samples CSV: {input.trimmed_samples_csv}" >> {log}
+        
+        # Run STAR alignment
+        STAR --runThreadN {threads} \
+            --genomeDir {input.index} \
+            --readFilesIn {input.r1} {input.r2} \
+            --readFilesCommand zcat \
+            --outFileNamePrefix {params.prefix} \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMunmapped Within \
+            --outSAMattributes Standard \
+            --outFilterMismatchNmax {params.outFilterMismatchNmax} \
+            --outFilterMultimapNmax {params.outFilterMultimapNmax} \
+            --outFilterScoreMinOverLread {params.outFilterScoreMinOverLread} \
+            --outFilterMatchNminOverLread {params.outFilterMatchNminOverLread} \
+            --alignSJDBoverhangMin {params.alignSJDBoverhangMin} \
+            --alignIntronMax {params.alignIntronMax} \
+            --quantMode TranscriptomeSAM GeneCounts \
+            --sjdbGTFfile {params.gtf} \
+            > {log} 2>&1
+        
+        # Verify output files exist
+        if [ ! -f "{output.bam}" ]; then
+            echo "ERROR: BAM file was not created" >> {log}
+            exit 1
+        fi
+        """
+
+# Set rule order for alignment with dependency
+ruleorder: star_align_with_dependency > star_align
+
 # Rules for running specific workflow stages independently
 # These allow users to run just a portion of the workflow
 
@@ -297,7 +461,9 @@ rule trimming_stage:
                sample=SAMPLES.keys()),
         expand("Analysis/Trimmed/{sample}/{sample}_R2_trimmed.fastq.gz",
                sample=SAMPLES.keys()),
-        "Analysis/QC/Trimming/MultiQC/multiqc_report.html"
+        "Analysis/QC/Trimming/MultiQC/multiqc_report.html",
+        "Analysis/Trimmed/.trimming_complete",
+        "resources/metadata/trimmed_samples.csv"
     params:
         time=config.get("trimming_stage_time", "00:05:00")
     resources:
@@ -305,14 +471,28 @@ rule trimming_stage:
     shell:
         """
         echo "Trimming stage completed successfully"
+        echo "Trimmed samples CSV generated at resources/metadata/trimmed_samples.csv"
+        """
+
+# Run just the alignment stage
+rule alignment_stage:
+    input:
+        "Analysis/Alignment/.alignment_complete"
+    params:
+        time=config.get("alignment_stage_time", "00:05:00")
+    resources:
+        mem_mb=config.get("alignment_stage_memory", 1000)
+    shell:
+        """
+        echo "Alignment stage completed successfully"
         """
 
 # Define workflow stages for better control over execution order
 rule workflow_stages:
     input:
         qc="Analysis/QC/.qc_complete",
-        trimming=expand("Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz",
-                      sample=SAMPLES.keys())
+        trimming="Analysis/Trimmed/.trimming_complete",
+        alignment="Analysis/Alignment/.alignment_complete"
     output:
         touch("Analysis/.workflow_complete")
     params:
@@ -324,6 +504,7 @@ rule workflow_stages:
         echo "Workflow completed successfully at $(date)"
         echo "QC stage: Completed"
         echo "Trimming stage: Completed"
+        echo "Alignment stage: Completed"
         """
 
 # Provide helpful messages on workflow completion or failure
@@ -335,6 +516,9 @@ onsuccess:
     print("Trimmed reads: Analysis/Trimmed/{sample}/{sample}_R1_trimmed.fastq.gz")
     print("Trimming reports: Analysis/QC/Trimming/Reports/{sample}_fastp.html")
     print("Trimming MultiQC: Analysis/QC/Trimming/MultiQC/multiqc_report.html")
+    print("Alignment BAMs: Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam")
+    print("Alignment counts: Analysis/Alignment/STAR/{sample}/{sample}.ReadsPerGene.out.tab")
+    print("Alignment MultiQC: Analysis/Alignment/MultiQC/multiqc_report.html")
     print("\nTo visualize the workflow graph:")
     print("  snakemake --dag | dot -Tsvg > workflow.svg")
 

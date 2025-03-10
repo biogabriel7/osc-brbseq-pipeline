@@ -140,6 +140,10 @@ rule multiqc_fastp:
         data_dir=directory("Analysis/QC/Trimming/MultiQC/multiqc_data")
     log:
         "logs/trimming/multiqc_fastp.log"
+    params:
+        time=config.get("multiqc_fastp_time", "00:30:00")
+    resources:
+        mem_mb=config.get("multiqc_fastp_memory", 4000)
     shell:
         """
         # Create output directory
