@@ -28,7 +28,8 @@ include: "workflow/fastp_trimming.snakefile" # Trimming rules
 include: "workflow/star_alignment.snakefile" # Alignment rules
 
 # Define the workflow order
-ruleorder: fastqc > multiqc > generate_trimming_params > fastp > multiqc_fastp > star_align > index_bam > alignment_metrics > multiqc_alignment
+# Use fastp rule instead of fastp_trim to avoid ambiguity
+ruleorder: fastp > fastp_trim
 
 # Define the complete workflow with all expected outputs
 rule all:
