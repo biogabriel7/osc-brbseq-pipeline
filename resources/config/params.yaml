@@ -1,85 +1,41 @@
-# File paths
-metasheet_path: "resources/config/metasheet.csv"
-params_path: "/users/PAS2598/duarte63/GitHub/satienzar-brnaseq/resources/config/params.yaml"
-base_dir: "/path/to/base_dir"  # Can be overridden at runtime
+# RNA-seq workflow configuration
 
-# General parameters
-threads: 28  # Number of CPU threads to use
+# Path to metasheet with sample information
+metasheet_path: "resources/metadata/samples.csv"
 
-# FastQC specific parameters
+# Test mode flag - will be overridden by command line when needed
+test_mode: false
+
+# Resource parameters
 fastqc_threads: 2
 fastqc_memory: 4000
-fastqc_time: "01:00:00"
 multiqc_memory: 4000
-multiqc_time: "00:30:00"
-
-# Trimming parameters
 trimming_threads: 4
 trimming_memory: 32000
-trimming_time: "02:00:00"
+star_threads: 8
+star_memory: 32000
+star_index_threads: 16
+star_index_memory: 40000
+bam_index_memory: 4000
+metrics_memory: 4000
+multiqc_alignment_memory: 4000
 
-# Default trimming parameters (used if not specified in trimming_params.json)
+# Reference files
+genome_fasta: "resources/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+gtf_file: "resources/genome/Homo_sapiens.GRCh38.90.gtf"
+star_index: "resources/genome/star_index"
+
+# STAR parameters
+sjdb_overhang: 100            # Read length - 1
+star_mismatch: 10             # Max mismatches
+star_multimap: 20             # Max multimappers
+star_score_min: 0.66          # Min alignment score
+star_match_min: 0.66          # Min match length
+star_sjdb_overhang_min: 3     # Min splice junction overhang
+star_intron_max: 500000       # Max intron length
+
+# Default trimming parameters (will be overridden by auto-detection)
 leading_quality: 3
 trailing_quality: 3
 sliding_window: "4:15"
 min_length: 36
-
-# MultiQC for trimming
-multiqc_fastp_memory: 4000
-multiqc_fastp_time: "00:30:00"
-
-# Workflow stage parameters
-qc_complete_memory: 1000
-qc_complete_time: "00:10:00"
-trimming_complete_memory: 1000
-trimming_complete_time: "00:10:00"
-alignment_complete_memory: 1000
-alignment_complete_time: "00:10:00"
-workflow_stages_memory: 1000
-workflow_stages_time: "00:10:00"
-
-# Trimmed samples CSV generation parameters
-generate_trimmed_csv_memory: 1000
-generate_trimmed_csv_time: "00:10:00"
-
-# Utility rule parameters
-params_generation_memory: 1000
-params_generation_time: "00:05:00"
-qc_stage_memory: 1000
-qc_stage_time: "00:05:00"
-trimming_stage_memory: 1000
-trimming_stage_time: "00:05:00"
-alignment_stage_memory: 1000
-alignment_stage_time: "00:05:00"
-
-# Reference genome paths
-genome_fasta: "resources/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
-gtf_file: "resources/genome/Homo_sapiens.GRCh38.90.gtf"
-
-# STAR index parameters
-star_index: "resources/genome/star_index"
-star_index_threads: 16
-star_index_memory: 40000
-star_index_time: "04:00:00"
-sjdb_overhang: 100  # Read length - 1
-
-# STAR alignment parameters
-star_threads: 8
-star_memory: 32000
-star_align_time: "04:00:00"
-star_mismatch: 10
-star_multimap: 20
-star_score_min: 0.66
-star_match_min: 0.66
-star_sjdb_overhang_min: 3
-star_intron_max: 500000
-
-# BAM processing parameters
-bam_index_memory: 4000
-bam_index_time: "01:00:00"
-metrics_memory: 4000
-metrics_time: "01:00:00"
-
-# MultiQC for alignment
-multiqc_alignment_memory: 4000
-multiqc_alignment_time: "01:00:00"

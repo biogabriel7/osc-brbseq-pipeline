@@ -1,49 +1,15 @@
-import csv
-import yaml
 import os
 from snakemake.utils import min_version
 min_version("6.0")
 
-# Load configuration
-configfile: "resources/config/params.yaml"
+# Note: No configfile statement here anymore - config is loaded in main Snakefile
 
-# Function to parse metasheet and extract sample information
-def get_samples_from_metasheet():
-    samples = {}
-    try:
-        with open(config["metasheet_path"], "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                sample_name = row["sample"]
-                samples[sample_name] = {
-                    "R1": row["R1"],
-                    "R2": row["R2"],
-                    "srr": os.path.basename(row["R1"]).replace("_R1.fastq.gz", "")  # Get SRR ID from filename
-                }
-                print(f"Loaded sample: {sample_name}, SRR: {samples[sample_name]['srr']}")
-    except FileNotFoundError:
-        print(f"Error: Metasheet not found at {config['metasheet_path']}")
-        raise
-    except KeyError as e:
-        print(f"Error: Missing required column in metasheet: {e}")
-        raise
-    return samples
-
-# Store samples from metasheet in a dictionary
-SAMPLES = get_samples_from_metasheet()
-
-# Create the directory structure
-for dir in ["logs/fastqc", "logs/multiqc", "logs/trimming", 
-            "Analysis/QC/FastQC", "Analysis/QC/MultiQC", "Analysis/QC/Trimming"]:
-    os.makedirs(dir, exist_ok=True)
-
-# Rule to generate all outputs
+# Rule to generate all QC outputs
 rule qc_all:
     input:
         # FastQC outputs
-        expand("Analysis/QC/FastQC/{sample}/{srr}_{read}_fastqc.html",
+        expand("Analysis/QC/FastQC/{sample}/{sample}_{read}_fastqc.html",
                sample=SAMPLES.keys(), 
-               srr=[SAMPLES[s]["srr"] for s in SAMPLES.keys()],
                read=["R1", "R2"]),
         # MultiQC report
         "Analysis/QC/MultiQC/multiqc_report.html",
@@ -63,8 +29,7 @@ rule fastqc:
     log:
         "logs/fastqc/{sample}.log"
     params:
-        outdir="Analysis/QC/FastQC/{sample}",
-        time=config.get("fastqc_time", "01:00:00")
+        outdir="Analysis/QC/FastQC/{sample}"
     threads: config.get("fastqc_threads", 2)
     resources:
         mem_mb=config.get("fastqc_memory", 4000)
@@ -115,8 +80,7 @@ rule multiqc:
     log:
         "logs/multiqc/multiqc.log"
     params:
-        outdir="Analysis/QC/MultiQC",
-        time=config.get("multiqc_time", "00:30:00")
+        outdir="Analysis/QC/MultiQC"
     resources:
         mem_mb=config.get("multiqc_memory", 4000)
     shell:
@@ -142,7 +106,6 @@ rule multiqc:
 
 # Rule to generate trimming parameters
 # This rule analyzes FastQC results to determine optimal trimming parameters for each sample
-# The resulting JSON file is used by the get_fastp_params function in the main Snakefile
 rule generate_trimming_params:
     input:
         multiqc_html="Analysis/QC/MultiQC/multiqc_report.html",
@@ -151,35 +114,12 @@ rule generate_trimming_params:
         params="Analysis/QC/Trimming/trimming_params.json"
     log:
         "logs/trimming/generate_params.log"
-    params:
-        time=config.get("params_time", "00:30:00")
+    resources:
+        mem_mb=config.get("params_memory", 4000)
     shell:
         """
         # Define the path to the MultiQC FastQC metrics file
         MULTIQC_FASTQC_FILE="Analysis/QC/MultiQC/multiqc_data/multiqc_fastqc.txt"
-        
-        # Add debugging information
-        echo "Input multiqc report: {input.multiqc_html}" >> {log}
-        echo "MultiQC metrics file: $MULTIQC_FASTQC_FILE" >> {log}
-        echo "Input config file: {input.config}" >> {log}
-        
-        # Make sure the script exists
-        if [ ! -f "workflow/scripts/trimming_params.py" ]; then
-            echo "ERROR: trimming_params.py script not found" >> {log}
-            exit 1
-        fi
-        
-        # Check if the multiqc file exists and has content
-        if [ ! -f "$MULTIQC_FASTQC_FILE" ]; then
-            echo "ERROR: MultiQC FastQC metrics file not found" >> {log}
-            echo "Contents of multiqc_data directory:" >> {log}
-            ls -la Analysis/QC/MultiQC/multiqc_data/ >> {log}
-            exit 1
-        fi
-        
-        # Display the first few lines of the multiqc file for debugging
-        echo "First 10 lines of multiqc file:" >> {log}
-        head -n 10 "$MULTIQC_FASTQC_FILE" >> {log}
         
         # Run the parameters generation script with verbose output
         python workflow/scripts/trimming_params.py \

@@ -16,6 +16,12 @@ module load miniconda3/24.1.2-py310
 # Activate your conda environment
 source activate local
 
+# Create common/utils.py if it doesn't exist
+mkdir -p workflow/common
+if [ ! -f "workflow/common/__init__.py" ]; then
+    touch workflow/common/__init__.py
+fi
+
 # Create directories for logs
 mkdir -p logs/slurm
 mkdir -p logs/workflow
@@ -30,6 +36,13 @@ echo "Starting RNA-seq workflow at $(date)"
 echo "Working directory: $(pwd)"
 echo "Snakefile: $(realpath Snakefile)"
 echo "Config file: $(realpath resources/config/params.yaml)"
+
+# Check if test mode flag is passed
+TEST_MODE=""
+if [ "$1" == "--test" ]; then
+    TEST_MODE="--config test_mode=True"
+    echo "RUNNING IN TEST MODE: Using only one sample"
+fi
 
 # Print environment information
 echo "Python version:"
@@ -51,6 +64,9 @@ snakemake --snakefile Snakefile \
     --printshellcmds \
     --reason \
     --verbose \
+    --resources mem_mb=150000 \
+    --cluster-config resources/config/cluster.yaml \
+    $TEST_MODE \
     --cluster "sbatch \
         --parsable \
         --job-name=sm.{rule} \
@@ -81,25 +97,5 @@ if [ $? -eq 0 ]; then
 else
     echo "Workflow failed at $(date)"
     echo "Check logs in logs/slurm/ for details"
-    
-    # Print additional debugging information
-    echo "Checking for critical files:"
-    echo "Trimmed samples CSV exists: $(test -f resources/metadata/trimmed_samples.csv && echo 'Yes' || echo 'No')"
-    if [ -f resources/metadata/trimmed_samples.csv ]; then
-        echo "Trimmed samples CSV content:"
-        cat resources/metadata/trimmed_samples.csv
-    fi
-    
-    echo "Trimming complete marker exists: $(test -f Analysis/Trimmed/.trimming_complete && echo 'Yes' || echo 'No')"
-    echo "QC complete marker exists: $(test -f Analysis/QC/.qc_complete && echo 'Yes' || echo 'No')"
-    
-    # List all log files for the failed job
-    echo "Recent log files:"
-    find logs -type f -name "*.log" -mtime -1 | xargs ls -lh
-    
-    # Check for OOM errors in log files
-    echo "Checking for OOM errors in logs:"
-    grep -l "Killed" logs/slurm/*.err | xargs -r echo "OOM detected in:"
-    
     exit 1
 fi
