@@ -31,7 +31,7 @@ multiqc_fastp:
 
 star_align:
   time: "04:00:00"
-  mem_mb: 32000
+  mem_mb: 64000
   threads: 8
 
 create_star_index:

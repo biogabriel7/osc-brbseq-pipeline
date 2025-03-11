@@ -5,9 +5,15 @@
 
 echo "=== Cleaning up previous analysis results ==="
 
-# Remove analysis directories
+# Check for and kill any running STAR processes
+echo "Checking for running STAR processes..."
+pkill -f STAR || true
+
+# Remove analysis directories with force option
 echo "Removing Analysis directory..."
-rm -rf Analysis/
+find Analysis/ -type d -name "*_STARtmp" -exec chmod -R u+w {} \; 2>/dev/null || true
+find Analysis/ -type d -name "*_STARgenome" -exec chmod -R u+w {} \; 2>/dev/null || true
+rm -rf Analysis/ || echo "Warning: Some files could not be removed. This is usually not a problem."
 
 # Remove logs
 echo "Removing logs..."

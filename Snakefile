@@ -301,10 +301,12 @@ rule star_align:
         outFilterScoreMinOverLread=config.get("star_score_min", 0.66),
         outFilterMatchNminOverLread=config.get("star_match_min", 0.66),
         alignSJDBoverhangMin=config.get("star_sjdb_overhang_min", 3),
-        alignIntronMax=config.get("star_intron_max", 500000)
+        alignIntronMax=config.get("star_intron_max", 500000),
+        # Special parameters for large samples
+        extra_params=lambda wildcards: "--limitIObufferSize 50000000 50000000 --limitOutSAMoneReadBytes 1000000" if wildcards.sample in ["Scaber_SRR28516486", "Scaber_SRR28516488", "Scaber_SRR28516489"] else ""
     threads: config.get("star_threads", 8)
     resources:
-        mem_mb=config.get("star_memory", 32000)
+        mem_mb=config.get("star_memory", 64000)
     shell:
         """
         # Create output directory
@@ -361,7 +363,8 @@ rule star_align:
             --alignIntronMax {params.alignIntronMax} \\
             --quantMode TranscriptomeSAM GeneCounts \\
             --sjdbGTFfile {params.gtf} \\
-            --limitBAMsortRAM $(({resources.mem_mb} * 1000000 * 3/4)) \\
+            --limitBAMsortRAM $(({resources.mem_mb} * 1000000 * 1/2)) \\
+            {params.extra_params} \\
             >> {log} 2>&1
         
         STAR_EXIT_CODE=$?
