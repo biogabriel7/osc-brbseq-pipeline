@@ -54,6 +54,22 @@ multiqc_alignment:
   mem_mb: 4000
   threads: 1
 
+# Feature counts rules
+feature_counts:
+  time: "02:00:00"
+  mem_mb: 8000
+  threads: 4
+
+merge_counts:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+multiqc_counts:
+  time: "00:30:00"
+  mem_mb: 4000
+  threads: 1
+
 # Workflow stage markers
 qc_complete:
   time: "00:10:00"
@@ -71,6 +87,11 @@ generate_trimmed_samples_csv:
   threads: 1
 
 main_alignment_complete:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+counts_complete:
   time: "00:10:00"
   mem_mb: 1000
   threads: 1

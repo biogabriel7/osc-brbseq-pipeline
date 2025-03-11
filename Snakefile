@@ -28,10 +28,11 @@ SAMPLES = get_samples_from_metasheet(config, test_mode=TEST_MODE)
 include: "workflow/qc_params.snakefile"      # QC and parameter generation rules
 include: "workflow/fastp_trimming.snakefile" # Trimming rules
 include: "workflow/star_alignment.snakefile" # Alignment rules
+include: "workflow/feature_counts.snakefile" # Feature counts rules
 
 # Define the workflow order
 # Updated to resolve ambiguity between fastp and fastp_trim
-ruleorder: fastp > fastp_trim > fastqc > multiqc > generate_trimming_params > multiqc_fastp > star_align > index_bam > alignment_metrics > multiqc_alignment
+ruleorder: fastp > fastp_trim > fastqc > multiqc > generate_trimming_params > multiqc_fastp > star_align > index_bam > alignment_metrics > multiqc_alignment > feature_counts > merge_counts > multiqc_counts
 
 # Define the complete workflow with all expected outputs
 rule all:
@@ -60,6 +61,14 @@ rule all:
         "Analysis/Alignment/MultiQC/multiqc_report.html",
         # Alignment completion marker
         "Analysis/Alignment/.main_alignment_complete",
+        # Feature counts stage outputs
+        expand("Analysis/Counts/FeatureCounts/{sample}/{sample}.counts.txt",
+               sample=SAMPLES.keys()),
+        "Analysis/Counts/FeatureCounts/merged_gene_counts.txt",
+        "Analysis/Counts/FeatureCounts/merged_gene_counts.normalized.txt",
+        "Analysis/Counts/MultiQC/multiqc_report.html",
+        # Counts completion marker
+        "Analysis/Counts/.counts_complete",
         # Final workflow completion marker
         "Analysis/.workflow_complete"
 
@@ -432,7 +441,8 @@ rule workflow_stages:
     input:
         qc="Analysis/QC/.qc_complete",
         trimming="Analysis/Trimmed/.trimming_complete",
-        alignment="Analysis/Alignment/.main_alignment_complete"
+        alignment="Analysis/Alignment/.main_alignment_complete",
+        counts="Analysis/Counts/.counts_complete"
     output:
         touch("Analysis/.workflow_complete")
     shell:
@@ -452,6 +462,10 @@ onsuccess:
     print("Alignment BAMs: Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam")
     print("Alignment counts: Analysis/Alignment/STAR/{sample}/{sample}.ReadsPerGene.out.tab")
     print("Alignment MultiQC: Analysis/Alignment/MultiQC/multiqc_report.html")
+    print("Feature counts: Analysis/Counts/FeatureCounts/{sample}/{sample}.counts.txt")
+    print("Merged count matrix: Analysis/Counts/FeatureCounts/merged_gene_counts.txt")
+    print("Normalized count matrix: Analysis/Counts/FeatureCounts/merged_gene_counts.normalized.txt")
+    print("Counts MultiQC: Analysis/Counts/MultiQC/multiqc_report.html")
     print("\nTo visualize the workflow graph:")
     print("  snakemake --dag | dot -Tsvg > workflow.svg")
 

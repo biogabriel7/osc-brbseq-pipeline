@@ -29,6 +29,7 @@ mkdir -p logs/fastqc
 mkdir -p logs/multiqc
 mkdir -p logs/trimming
 mkdir -p logs/star
+mkdir -p logs/counts
 mkdir -p resources/metadata
 
 # Print workflow information
@@ -94,6 +95,10 @@ if [ $? -eq 0 ]; then
     echo "Alignment BAMs: Analysis/Alignment/STAR/{sample}/{sample}.Aligned.sortedByCoord.out.bam"
     echo "Alignment counts: Analysis/Alignment/STAR/{sample}/{sample}.ReadsPerGene.out.tab"
     echo "Alignment reports: Analysis/Alignment/MultiQC/multiqc_report.html"
+    echo "Feature counts: Analysis/Counts/FeatureCounts/{sample}/{sample}.counts.txt"
+    echo "Merged count matrix: Analysis/Counts/FeatureCounts/merged_gene_counts.txt"
+    echo "Normalized count matrix: Analysis/Counts/FeatureCounts/merged_gene_counts.normalized.txt"
+    echo "Counts reports: Analysis/Counts/MultiQC/multiqc_report.html"
 else
     echo "Workflow failed at $(date)"
     echo "Check logs in logs/slurm/ for details"

@@ -19,6 +19,10 @@ star_index_memory: 40000
 bam_index_memory: 4000
 metrics_memory: 4000
 multiqc_alignment_memory: 4000
+featurecounts_threads: 4
+featurecounts_memory: 8000
+merge_counts_memory: 4000
+multiqc_counts_memory: 4000
 
 # Reference files
 genome_fasta: "resources/genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
@@ -39,3 +43,9 @@ leading_quality: 3
 trailing_quality: 3
 sliding_window: "4:15"
 min_length: 36
+
+# Feature counts parameters
+feature_type: "exon"          # Feature type to count (exon, gene, transcript)
+attribute: "gene_id"          # Attribute to use for grouping features
+strand_specificity: "0"       # Strand specificity: 0 (unstranded), 1 (stranded), 2 (reversely stranded)
+featurecounts_extra: "-p -B -C --fracOverlap 0.2"  # Additional parameters for featureCounts
