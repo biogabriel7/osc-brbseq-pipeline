@@ -86,88 +86,9 @@ rule merge_counts:
     log:
         "logs/counts/merge_counts.log"
     resources:
-        mem_mb=config.get("merge_counts_memory", 4000)
-    shell:
-        """
-        # Create output directory
-        mkdir -p $(dirname {output.merged})
-        
-        # Run the merge script
-        echo "Merging count files..." > {log} 2>&1
-        
-        # Create header with sample names
-        echo -n "Gene_ID" > {output.merged}
-        for f in {input.counts}; do
-            sample=$(basename $(dirname $f))
-            echo -n -e "\\t$sample" >> {output.merged}
-        done
-        echo "" >> {output.merged}
-        
-        # Extract the counts (skip header lines)
-        # Assuming the first column is gene ID and the 7th column is the count
-        # This works for standard featureCounts output format
-        
-        # Get the list of all genes from the first file (skip header lines)
-        tail -n +3 $(echo {input.counts} | cut -d' ' -f1) | cut -f1 > gene_list.tmp
-        
-        # For each gene, extract counts from all files
-        while read gene; do
-            echo -n "$gene" >> {output.merged}
-            for f in {input.counts}; do
-                count=$(tail -n +3 $f | grep -w "^$gene" | cut -f7)
-                if [ -z "$count" ]; then
-                    count="0"
-                fi
-                echo -n -e "\\t$count" >> {output.merged}
-            done
-            echo "" >> {output.merged}
-        done < gene_list.tmp
-        
-        # Remove temporary file
-        rm gene_list.tmp
-        
-        # Create normalized counts (CPM)
-        echo "Generating normalized counts (CPM)..." >> {log}
-        
-        # Copy header
-        head -n 1 {output.merged} > {output.normalized}
-        
-        # Create a temporary file to store library sizes
-        echo "" > lib_sizes.tmp
-        
-        # Calculate library sizes and store in temporary file
-        for f in {input.counts}; do
-            sample=$(basename $(dirname $f))
-            lib_size=$(tail -n +3 $f | awk '{{sum+=$7}} END {{print sum}}')
-            echo "$sample\\t$lib_size" >> lib_sizes.tmp
-            echo "Library size for $sample: $lib_size" >> {log}
-        done
-        
-        # Normalize counts (CPM)
-        tail -n +2 {output.merged} | while read line; do
-            gene=$(echo "$line" | cut -f1)
-            echo -n "$gene" >> {output.normalized}
-            
-            # Get counts for each sample and normalize
-            for sample in $(head -n 1 {output.merged} | cut -f2-); do
-                count=$(echo "$line" | grep -w "^$gene" | cut -f$(head -n 1 {output.merged} | tr '\\t' '\\n' | grep -n "^$sample$" | cut -d: -f1))
-                lib_size=$(grep -w "^$sample" lib_sizes.tmp | cut -f2)
-                
-                # Calculate CPM: (count * 1,000,000) / library_size
-                cpm=$(awk -v count="$count" -v lib="$lib_size" 'BEGIN {{printf "%.2f", (count * 1000000) / lib}}')
-                echo -n -e "\\t$cpm" >> {output.normalized}
-            done
-            echo "" >> {output.normalized}
-        done
-        
-        # Remove temporary file
-        rm lib_sizes.tmp
-        
-        echo "Count merging completed successfully" >> {log}
-        echo "Output files:" >> {log}
-        echo "  Raw counts: {output.merged}" >> {log}
-        echo "  Normalized counts (CPM): {output.normalized}" >> {log}
-        """
+        mem_mb=config.get("merge_counts_memory", 8000)
+    script:
+        "scripts/merge_counts.py"
 
 # Rule to run MultiQC on feature counts results
 rule multiqc_counts:
@@ -200,6 +121,12 @@ rule multiqc_counts:
         if [ ! -f "{output.html}" ]; then
             echo "ERROR: MultiQC report was not created" >> {log}
             exit 1
+        fi
+        
+        # Create data directory if it doesn't exist
+        if [ ! -d "{output.data_dir}" ]; then
+            mkdir -p {output.data_dir}
+            touch {output.data_dir}/.placeholder
         fi
         
         echo "MultiQC completed successfully" >> {log}

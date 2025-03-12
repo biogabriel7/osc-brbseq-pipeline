@@ -81,6 +81,7 @@ rule alignment_metrics:
         """
 
 # Rule to run MultiQC on alignment results
+# Rule to run MultiQC on alignment results
 rule multiqc_alignment:
     input:
         star_logs=expand("Analysis/Alignment/STAR/{sample}/{sample}.Log.final.out", sample=SAMPLES.keys()),
@@ -111,5 +112,11 @@ rule multiqc_alignment:
         if [ ! -f "{output.html}" ]; then
             echo "ERROR: MultiQC report was not created" >> {log}
             exit 1
+        fi
+        
+        # Create data directory if it doesn't exist
+        if [ ! -d "{output.data_dir}" ]; then
+            mkdir -p {output.data_dir}
+            touch {output.data_dir}/.placeholder
         fi
         """
