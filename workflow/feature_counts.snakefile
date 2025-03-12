@@ -132,12 +132,14 @@ rule merge_counts:
         # Copy header
         head -n 1 {output.merged} > {output.normalized}
         
-        # Calculate library sizes
-        declare -A lib_sizes
+        # Create a temporary file to store library sizes
+        echo "" > lib_sizes.tmp
+        
+        # Calculate library sizes and store in temporary file
         for f in {input.counts}; do
             sample=$(basename $(dirname $f))
             lib_size=$(tail -n +3 $f | awk '{{sum+=$7}} END {{print sum}}')
-            lib_sizes["$sample"]=$lib_size
+            echo "$sample\\t$lib_size" >> lib_sizes.tmp
             echo "Library size for $sample: $lib_size" >> {log}
         done
         
@@ -149,7 +151,7 @@ rule merge_counts:
             # Get counts for each sample and normalize
             for sample in $(head -n 1 {output.merged} | cut -f2-); do
                 count=$(echo "$line" | grep -w "^$gene" | cut -f$(head -n 1 {output.merged} | tr '\\t' '\\n' | grep -n "^$sample$" | cut -d: -f1))
-                lib_size=${lib_sizes["$sample"]}
+                lib_size=$(grep -w "^$sample" lib_sizes.tmp | cut -f2)
                 
                 # Calculate CPM: (count * 1,000,000) / library_size
                 cpm=$(awk -v count="$count" -v lib="$lib_size" 'BEGIN {{printf "%.2f", (count * 1000000) / lib}}')
@@ -157,6 +159,9 @@ rule merge_counts:
             done
             echo "" >> {output.normalized}
         done
+        
+        # Remove temporary file
+        rm lib_sizes.tmp
         
         echo "Count merging completed successfully" >> {log}
         echo "Output files:" >> {log}

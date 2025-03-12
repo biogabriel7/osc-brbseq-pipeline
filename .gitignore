@@ -7,3 +7,4 @@
 /workflow/old_approach
 Snakefile.bak
 workflow/common/__pycache__/utils.cpython-310.pyc
+gene_list.tmp
