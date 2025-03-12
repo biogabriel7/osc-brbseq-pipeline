@@ -1,0 +1,102 @@
+# Cluster configuration for RNA-seq Snakemake workflow
+__default__:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+fastqc:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 2
+
+multiqc:
+  time: "00:30:00"
+  mem_mb: 4000
+  threads: 1
+
+generate_trimming_params:
+  time: "00:30:00"
+  mem_mb: 4000
+  threads: 1
+
+fastp:
+  time: "02:00:00"
+  mem_mb: 32000
+  threads: 4
+
+multiqc_fastp:
+  time: "00:30:00"
+  mem_mb: 4000
+  threads: 1
+
+star_align:
+  time: "04:00:00"
+  mem_mb: 64000
+  threads: 8
+
+create_star_index:
+  time: "04:00:00"
+  mem_mb: 40000
+  threads: 16
+
+index_bam:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+alignment_metrics:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+multiqc_alignment:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+# Feature counts rules
+feature_counts:
+  time: "02:00:00"
+  mem_mb: 8000
+  threads: 4
+
+merge_counts:
+  time: "01:00:00"
+  mem_mb: 4000
+  threads: 1
+
+multiqc_counts:
+  time: "00:30:00"
+  mem_mb: 4000
+  threads: 1
+
+# Workflow stage markers
+qc_complete:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+trimming_complete:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+generate_trimmed_samples_csv:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+main_alignment_complete:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+counts_complete:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
+
+workflow_stages:
+  time: "00:10:00"
+  mem_mb: 1000
+  threads: 1
