@@ -50,6 +50,7 @@ The workflow is designed to be modular, with clear dependencies between stages a
 - fastp
 - STAR
 - samtools
+- subread (2.0.8)
 
 ## Setup
 
