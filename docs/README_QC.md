@@ -155,6 +155,64 @@ qc_complete_memory: 1000
 qc_complete_time: "00:10:00"
 ```
 
+## Detailed Parameter Explanations
+
+### FastQC Parameters
+
+FastQC is a quality control tool for high throughput sequence data. It runs a set of analyses on your FASTQ files and provides a comprehensive report.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `fastqc_threads` | Number of CPU threads to use for FastQC analysis. Increasing this value can speed up processing for large files. | 2 |
+| `fastqc_memory` | Memory allocation in MB for FastQC. Most samples require minimal memory, but larger files may need more. | 4000 |
+| `fastqc_time` | Maximum runtime for FastQC jobs in HH:MM:SS format. | "01:00:00" |
+
+FastQC performs several quality checks on raw sequence data:
+- **Basic Statistics**: Summary statistics about the file
+- **Per Base Sequence Quality**: Quality scores across all bases at each position
+- **Per Sequence Quality Scores**: Quality score distribution over all sequences
+- **Per Base Sequence Content**: Proportion of each base at each position
+- **Per Sequence GC Content**: GC content across all sequences
+- **Per Base N Content**: Proportion of N bases at each position
+- **Sequence Length Distribution**: Distribution of sequence lengths
+- **Sequence Duplication Levels**: Degree of duplication for sequences
+- **Overrepresented Sequences**: Sequences that appear more than expected
+- **Adapter Content**: Adapter sequences present in the data
+- **Kmer Content**: Sequences that are overrepresented at specific positions
+
+### MultiQC Parameters
+
+MultiQC aggregates results from multiple bioinformatics analyses into a single report.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `multiqc_memory` | Memory allocation in MB for MultiQC. | 4000 |
+| `multiqc_time` | Maximum runtime for MultiQC jobs in HH:MM:SS format. | "00:30:00" |
+
+### Parameter Generation Parameters
+
+The parameter generation step analyzes FastQC results to determine optimal trimming parameters for each sample.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `params_time` | Maximum runtime for parameter generation in HH:MM:SS format. | "00:30:00" |
+
+The parameter generation script analyzes the following metrics to determine trimming parameters:
+- **Adapter Content**: Determines if adapter trimming is needed
+- **Per Base Sequence Quality**: Determines quality thresholds for trimming
+- **Overrepresented Sequences**: Identifies potential contaminants
+- **GC Content**: Identifies potential bias or contamination
+- **Sequence Duplication**: Determines if deduplication is needed
+- **Poly-G Content**: Determines if poly-G trimming is needed (common in NextSeq/NovaSeq data)
+
+The script generates a JSON file with sample-specific parameters that will be used in the trimming stage:
+- `leading_quality`: Quality threshold for trimming bases from the start of reads
+- `trailing_quality`: Quality threshold for trimming bases from the end of reads
+- `min_length`: Minimum read length to keep after trimming
+- `sliding_window`: Window size and quality threshold for sliding window trimming
+- `deduplication`: Whether to remove duplicate reads
+- `trim_poly_g`: Whether to trim poly-G tails
+
 ## Running the QC Stage
 
 To run only the QC stage:
