@@ -173,6 +173,66 @@ generate_trimmed_csv_memory: 1000
 generate_trimmed_csv_time: "00:10:00"
 ```
 
+## Detailed Parameter Explanations
+
+### fastp Parameters
+
+fastp is an ultra-fast all-in-one FASTQ preprocessor that provides quality control, adapter trimming, quality filtering, and more.
+
+#### Resource Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `trimming_threads` | Number of CPU threads to use for fastp. Higher values can significantly speed up processing. | 4 |
+| `trimming_memory` | Memory allocation in MB for fastp. Large files may require more memory, especially when deduplication is enabled. | 8000 |
+| `trimming_time` | Maximum runtime for fastp jobs in HH:MM:SS format. | "02:00:00" |
+
+#### Quality Control Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `leading_quality` | Quality threshold for trimming low-quality bases from the start of reads. Bases with quality below this value will be removed. | 3 |
+| `trailing_quality` | Quality threshold for trimming low-quality bases from the end of reads. Bases with quality below this value will be removed. | 3 |
+| `sliding_window` | Format: "window_size:quality_threshold". Scans the read with a sliding window, cutting when the average quality within the window falls below the threshold. | "4:15" |
+| `min_length` | Minimum length of reads to keep after trimming. Shorter reads will be discarded. | 36 |
+
+#### Advanced Parameters (Set in trimming_params.json)
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `deduplication` | Whether to remove duplicate reads. Useful for reducing bias in expression studies but can be memory-intensive. | false |
+| `trim_poly_g` | Whether to trim poly-G tails, which are common in NextSeq/NovaSeq data due to the two-color chemistry. | false |
+| `low_complexity_filter` | Whether to filter out low complexity reads (e.g., reads with long stretches of the same base). | false |
+
+### fastp Command-line Options
+
+The pipeline constructs fastp commands with the following options:
+
+- `--qualified_quality_phred`: Equivalent to `trailing_quality`, bases with quality below this will be trimmed from the 3' end
+- `--unqualified_percent_limit`: Maximum percentage of bases allowed to be below quality threshold (default: 40%)
+- `--cut_front`/`--cut_tail`: Enable trimming from 5' and 3' ends
+- `--cut_front_window_size`/`--cut_tail_window_size`: Window size for sliding window trimming
+- `--cut_front_mean_quality`/`--cut_tail_mean_quality`: Quality threshold for sliding window trimming
+- `--length_required`: Minimum read length after trimming
+- `--dedup`: Enable deduplication (if specified in parameters)
+- `--trim_poly_g`: Enable poly-G trimming (if specified in parameters)
+- `--low_complexity_filter`: Enable low complexity filtering (if specified in parameters)
+- `--detect_adapter_for_pe`: Automatically detect adapters for paired-end data
+
+### MultiQC Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `multiqc_fastp_memory` | Memory allocation in MB for MultiQC when processing fastp reports. | 4000 |
+| `multiqc_fastp_time` | Maximum runtime for MultiQC jobs in HH:MM:SS format. | "00:30:00" |
+
+### Trimmed Samples Metadata Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `generate_trimmed_csv_memory` | Memory allocation in MB for generating the trimmed samples CSV file. | 1000 |
+| `generate_trimmed_csv_time` | Maximum runtime for CSV generation in HH:MM:SS format. | "00:10:00" |
+
 ## Running the Trimming Stage
 
 To run only the trimming stage:

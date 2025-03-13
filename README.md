@@ -1,18 +1,65 @@
-# RNA-seq Analysis Workflow
-
-A comprehensive Snakemake workflow for RNA-seq data analysis, from quality control to alignment.
+# RNA-seq Analysis Pipeline
 
 ## Overview
 
-This workflow automates the RNA-seq analysis process with the following stages:
+This repository contains a comprehensive RNA-seq analysis pipeline implemented using Snakemake. The pipeline processes raw sequencing data through quality control, trimming, alignment, and quantification stages to produce gene expression counts ready for downstream analysis.
 
-1. **Quality Control**: FastQC analysis of raw reads and MultiQC reporting
-2. **Parameter Generation**: Automatic determination of optimal trimming parameters based on QC results
-3. **Trimming**: Adapter and quality trimming using fastp with sample-specific parameters
-4. **Alignment**: STAR alignment of trimmed reads to reference genome
-5. **Post-alignment Analysis**: BAM indexing, metrics collection, and MultiQC reporting
+## Pipeline Stages
 
-The workflow is designed to be modular, with clear dependencies between stages and automatic generation of necessary metadata files.
+The pipeline consists of five main stages:
+
+1. **Quality Control (QC)**: Assesses the quality of raw sequencing data and determines optimal trimming parameters
+2. **Trimming**: Removes adapters and low-quality bases from raw reads
+3. **Alignment**: Maps trimmed reads to a reference genome
+4. **Feature Counts**: Quantifies gene expression by counting reads mapped to genomic features
+5. **Workflow Completion**: Ensures all stages are completed successfully
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/TheSaezAtienzarLab/osc-rnaseq-pipeline.git
+cd satienzar-brnaseq
+
+# Configure samples in resources/config/metasheet.csv
+# Configure parameters in resources/config/params.yaml
+
+# Run the pipeline
+snakemake --cores <N> --use-conda
+```
+
+## Documentation
+
+For detailed information about the pipeline, see the following documentation:
+
+- [Pipeline Overview](docs/README_PIPELINE.md)
+- [Quality Control Documentation](docs/README_QC.md)
+- [Trimming Documentation](docs/README_TRIMMING.md)
+- [Alignment Documentation](docs/README_ALIGNMENT.md)
+- [Feature Counts Documentation](docs/README_COUNTS.md)
+
+## Requirements
+
+- Snakemake (≥ 6.0)
+- FastQC
+- MultiQC
+- fastp
+- STAR
+- Samtools
+- Subread (for featureCounts)
+- Python (≥ 3.6)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Citation
+
+If you use this pipeline in your research, please cite:
+
+```
+Duarte Gabriel,Saez-Atienzar Sara. (2025). RNA-seq Analysis Pipeline. GitHub repository, https://github.com/TheSaezAtienzarLab/osc-rnaseq-pipeline
+```
 
 ## Directory Structure
 
