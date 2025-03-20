@@ -8,13 +8,13 @@
 #SBATCH --output=logs/slurm/snakemake_%j.out
 #SBATCH --error=logs/slurm/snakemake_%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=gabriel.duarte@osumc.edu
+#SBATCH --mail-user=mor558@osumc.edu
 
 # Load modules
 module load miniconda3/24.1.2-py310
 
 # Activate your conda environment
-source activate local
+source activate bulk_RNA_env
 
 # Create common/utils.py if it doesn't exist
 mkdir -p workflow/common
