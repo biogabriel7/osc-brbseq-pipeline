@@ -57,5 +57,5 @@ workflow_dag.svg
 /workflow/utils/prefetch_821101.log
 /workflow/utils/prefetch_821408.log
 /workflow/utils/prefetch_821414.log
-/clean_and_re-run.sh
-/gabi_download_sra.sh
+clean_and_re-run.sh
+gabi_download_sra.sh
